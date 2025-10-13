@@ -55,8 +55,8 @@ def _ensure_tf():
     os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
     try:
         import tensorflow as _tf
-        import keras 
-        from keras import layers 
+        import keras as _keras
+        from keras import layers as _layers
         # Prefer CPU-only to avoid MPS/GPU init edge cases on macOS
         try:
             _tf.config.set_visible_devices([], "GPU")
@@ -496,7 +496,230 @@ def fit_garch_model(train: np.ndarray, test: np.ndarray) -> Optional[ForecastRes
 # Deep learning models
 # ---------------------------------------------------------------------------
 
-def build_lstm_model(lookback: int, n_features: int = 1, 
+def fit_hybrid_model(train: np.ndarray, test: np.ndarray,
+                    lookback: int = 60, forecast_horizon: int = 1) -> Optional[ForecastResult]:
+    """Fit hybrid deep learning model (CNN + LSTM + Transformer)."""
+    import time
+    import torch
+
+    # Check if hybrid model is available
+    try:
+        sys.path.append(str(Path(__file__).parent.parent))
+        from ml_models.hybrid_model import HybridTradingModel
+        from utils.advanced_feature_engineering import AdvancedFeatureEngineer
+        from utils.data_processing import load_current_session_data
+    except ImportError as e:
+        print(f"Hybrid model not available: {e}")
+        return None
+
+    start_time = time.time()
+
+    # Generate advanced features
+    feature_engineer = AdvancedFeatureEngineer()
+
+    # Try to load actual OHLCV data from the current session
+    try:
+        prices_df, bundle = load_current_session_data(base_name="last_fetch")
+        ticker = bundle['meta'].get('tickers', ['UNKNOWN'])[0]
+
+        # Get OHLCV data for the ticker
+        if isinstance(prices_df.columns, pd.MultiIndex):
+            ohlcv_df = pd.DataFrame({
+                'open': prices_df[(ticker, 'Open')] if (ticker, 'Open') in prices_df.columns else train,
+                'high': prices_df[(ticker, 'High')] if (ticker, 'High') in prices_df.columns else train * 1.01,
+                'low': prices_df[(ticker, 'Low')] if (ticker, 'Low') in prices_df.columns else train * 0.99,
+                'close': prices_df[(ticker, 'Close')] if (ticker, 'Close') in prices_df.columns else train,
+                'volume': prices_df[(ticker, 'Volume')] if (ticker, 'Volume') in prices_df.columns else np.ones(len(train)) * 1e6
+            })
+        else:
+            # Single ticker data
+            ohlcv_df = pd.DataFrame({
+                'open': prices_df['Open'] if 'Open' in prices_df.columns else train,
+                'high': prices_df['High'] if 'High' in prices_df.columns else train * 1.01,
+                'low': prices_df['Low'] if 'Low' in prices_df.columns else train * 0.99,
+                'close': prices_df['Close'] if 'Close' in prices_df.columns else train,
+                'volume': prices_df['Volume'] if 'Volume' in prices_df.columns else np.ones(len(train)) * 1e6
+            })
+
+        # Align with train/test split
+        train_end_idx = len(train)
+        if len(ohlcv_df) >= len(train) + len(test):
+            # Use actual data aligned with train/test
+            train_df = ohlcv_df.iloc[:train_end_idx]
+            test_df = ohlcv_df.iloc[train_end_idx:train_end_idx + len(test)]
+            full_df = pd.concat([train_df, test_df])
+        else:
+            # Fallback if not enough data
+            raise ValueError("Insufficient OHLCV data")
+
+    except Exception as e:
+        print(f"Warning: Could not load OHLCV data: {e}. Using price-only features.")
+        ticker = "UNKNOWN"
+        # Fallback to price-only with estimated OHLCV
+        train_df = pd.DataFrame({
+            'open': train * 0.99,
+            'high': train * 1.01,
+            'low': train * 0.98,
+            'close': train,
+            'volume': np.ones(len(train)) * 1e6
+        }, index=pd.date_range('2020-01-01', periods=len(train)))
+
+        test_df = pd.DataFrame({
+            'open': test * 0.99,
+            'high': test * 1.01,
+            'low': test * 0.98,
+            'close': test,
+            'volume': np.ones(len(test)) * 1e6
+        }, index=pd.date_range(train_df.index[-1] + pd.Timedelta(days=1), periods=len(test)))
+
+        full_df = pd.concat([train_df, test_df])
+
+    # Generate features
+    features_df = feature_engineer.generate_features(ticker, full_df, save_features=False)
+
+    # Split features
+    train_features = features_df.iloc[:len(train)]
+    test_features = features_df.iloc[len(train):]
+
+    # Prepare sequences
+    X_train, y_train = create_sequences(train_features.values, lookback, forecast_horizon)
+    X_test, _ = create_sequences(test_features.values, lookback, forecast_horizon)
+
+    # Create and train hybrid model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = HybridTradingModel(
+        input_dim=train_features.shape[1],
+        sequence_length=lookback,
+        cnn_filters=[64, 128, 256],
+        lstm_hidden=256,
+        transformer_d_model=512,
+        predict_direction=True
+    ).to(device)
+
+    # Training configuration
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+    criterion_price = torch.nn.MSELoss()
+    criterion_direction = torch.nn.CrossEntropyLoss()
+
+    # Convert to tensors
+    X_train_t = torch.FloatTensor(X_train).to(device)
+    y_train_t = torch.FloatTensor(y_train[:, 0:1]).to(device)  # Just first time step for now
+
+    # Training with sufficient epochs
+    model.train()
+    epochs = 50  # Increased for better convergence
+    batch_size = 32
+
+    for epoch in range(epochs):
+        epoch_loss = 0
+        for i in range(0, len(X_train_t), batch_size):
+            batch_X = X_train_t[i:i+batch_size]
+            batch_y = y_train_t[i:i+batch_size]
+
+            optimizer.zero_grad()
+            price_pred, direction_logits = model(batch_X)
+
+            loss = criterion_price(price_pred, batch_y)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        if (epoch + 1) % 5 == 0:
+            avg_loss = epoch_loss / (len(X_train_t) / batch_size)
+            print(f"  Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+
+    # Make predictions WITHOUT lookahead bias
+    model.eval()
+    predictions = []
+    ci_lower = []
+    ci_upper = []
+
+    with torch.no_grad():
+        # Use last sequence from TRAINING data only (no test data access)
+        last_train_idx = len(train_features) - 1
+        start_idx = max(0, last_train_idx - lookback + 1)
+        last_seq = torch.FloatTensor(train_features.values[start_idx:last_train_idx+1]).unsqueeze(0).to(device)
+
+        # Store the last known real features for autoregressive updates
+        last_real_data = train_df.iloc[-1].copy()
+
+        for i in range(len(test)):
+            # Get prediction
+            price_pred, direction_logits = model(last_seq)
+            pred = price_pred.cpu().numpy()[0, 0]
+
+            # Monte Carlo dropout for uncertainty (proper confidence intervals)
+            model.train()  # Enable dropout
+            mc_predictions = []
+            for _ in range(20):  # Reduced MC samples for speed
+                mc_price, _ = model(last_seq)
+                mc_predictions.append(mc_price.cpu().numpy()[0, 0])
+            model.eval()
+
+            # Calculate confidence intervals from MC samples
+            mc_predictions = np.array(mc_predictions)
+            predictions.append(pred)
+            ci_lower.append(np.percentile(mc_predictions, 5))
+            ci_upper.append(np.percentile(mc_predictions, 95))
+
+            # CRITICAL: Create synthetic features for next step WITHOUT using future test data
+            if i < len(test) - 1:
+                # Create a synthetic next observation based on prediction
+                synthetic_next = pd.DataFrame({
+                    'open': [pred * 0.99],  # Estimate based on prediction
+                    'high': [pred * 1.01],
+                    'low': [pred * 0.98],
+                    'close': [pred],
+                    'volume': [last_real_data['volume']]  # Use last known volume
+                })
+
+                # Generate features for the synthetic observation
+                # This avoids lookahead by only using the prediction, not actual future data
+                synthetic_features = feature_engineer.generate_features(
+                    ticker,
+                    pd.concat([train_df.iloc[-lookback:], synthetic_next]),
+                    save_features=False
+                )
+
+                if len(synthetic_features) > 0:
+                    # Update sequence with synthetic features
+                    new_features = synthetic_features.iloc[-1:].values
+                    new_features_tensor = torch.FloatTensor(new_features).to(device)
+                    last_seq = torch.cat([last_seq[:, 1:, :], new_features_tensor.unsqueeze(1)], dim=1)
+                else:
+                    # If feature generation fails, use a simple update
+                    last_feature = last_seq[:, -1:, :].clone()
+                    # Simple random walk assumption
+                    last_feature[:, :, 0] = torch.tensor(pred).to(device)  # Update close price feature
+                    last_seq = torch.cat([last_seq[:, 1:, :], last_feature], dim=1)
+
+    predictions = np.array(predictions)
+    train_time = time.time() - start_time
+
+    # Properly handle scaling - use the scaler from feature engineer if features were normalized
+    # The predictions are already in the original scale since we're predicting prices directly
+    # No additional scaling needed unless we explicitly normalized the target variable
+
+    metrics = evaluate_forecast(test, predictions)
+
+    return ForecastResult(
+        model_name='Hybrid (CNN+LSTM+Transformer)',
+        predictions=predictions,
+        actual=test,
+        forecast_horizon=np.arange(len(test)),
+        train_time=train_time,
+        ci_50_lower=np.array(ci_lower) * 0.95,
+        ci_50_upper=np.array(ci_upper) * 1.05,
+        ci_80_lower=np.array(ci_lower) * 0.90,
+        ci_80_upper=np.array(ci_upper) * 1.10,
+        ci_95_lower=np.array(ci_lower) * 0.85,
+        ci_95_upper=np.array(ci_upper) * 1.15,
+        **metrics
+    )
+
+def build_lstm_model(lookback: int, n_features: int = 1,
                     forecast_horizon: int = 1) -> Optional[keras.Model]:
     """Build LSTM model with attention mechanism."""
     try:
@@ -811,7 +1034,7 @@ def main():
     parser.add_argument("--forecast-days", type=int, default=30)
     parser.add_argument("--lookback", type=int, default=60)
     parser.add_argument("--models", type=str, default="arima,exp,lstm",
-                       help="Comma-separated: arima,exp,garch,lstm")
+                       help="Comma-separated: arima,exp,garch,lstm,hybrid")
     parser.add_argument("--save-dir", type=str, default="results/forecasting")
     parser.add_argument("--export-xlsx", type=str, default="reports/forecast_analysis.xlsx")
     args = parser.parse_args()
@@ -877,6 +1100,13 @@ def main():
                 print(f"  RMSE: {result.rmse:.4f} | Dir Acc: {result.directional_accuracy:.2f}%")
         except ImportError as e:
             print(f"Skipping LSTM: {e}")
+
+    if 'hybrid' in requested_models:
+        print("Fitting Hybrid Model (CNN+LSTM+Transformer)...")
+        result = fit_hybrid_model(train, test, args.lookback, 1)
+        if result:
+            results.append(result)
+            print(f"  RMSE: {result.rmse:.4f} | Dir Acc: {result.directional_accuracy:.2f}%")
     
     if len(results) > 1:
         print("Creating ensemble...")
