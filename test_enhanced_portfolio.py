@@ -1,10 +1,3 @@
-"""
-Quick Test Script for Enhanced Portfolio System
-================================================
-
-Tests all major components of the enhanced portfolio construction system.
-"""
-
 import sys
 from pathlib import Path
 

@@ -1,16 +1,3 @@
-"""
-Hybrid Trading Model
-====================
-
-This module integrates CNN, LSTM, and Transformer components into a unified
-hybrid deep learning model for financial time series prediction.
-
-The model implements:
-- Three-stage pipeline (parallel feature extraction → fusion → prediction)
-- Multi-task learning (price prediction + direction classification)
-- Comprehensive regularization techniques
-"""
-
 from __future__ import annotations
 
 import torch

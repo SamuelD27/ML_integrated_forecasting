@@ -1,10 +1,3 @@
-"""
-Yahoo Finance Provider Implementation
-======================================
-
-Wrapper around yfinance with standardized interface.
-"""
-
 import yfinance as yf
 import pandas as pd
 import numpy as np

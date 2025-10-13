@@ -1,19 +1,3 @@
-"""
-Custom Transformer Module with Multi-Head Attention
-====================================================
-
-This module implements a Transformer encoder with learnable positional embeddings,
-multi-head self-attention, and dual attention mechanisms for capturing global
-context and inter-stock relationships.
-
-Features:
-- Learnable positional embeddings
-- Multi-head self-attention (8 heads by default)
-- Dual attention (masked + standard)
-- Feed-forward network with GELU activation
-- Layer normalization and dropout
-"""
-
 from __future__ import annotations
 
 import torch

@@ -1,17 +1,3 @@
-"""
-Bidirectional LSTM/GRU Module with Attention
-=============================================
-
-This module implements LSTM/GRU encoders for capturing long-term dependencies
-in financial time series (30-60 day sequences).
-
-Features:
-- Bidirectional processing for forward and backward context
-- Multi-layer stacking for hierarchical representations
-- Attention mechanism for focusing on relevant time steps
-- Layer normalization for training stability
-"""
-
 from __future__ import annotations
 
 import torch

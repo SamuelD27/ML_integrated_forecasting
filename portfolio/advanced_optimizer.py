@@ -1,15 +1,3 @@
-"""
-Advanced Portfolio Optimizer
-=============================
-
-Multi-asset portfolio optimization with:
-1. Shrinkage covariance estimation (Ledoit-Wolf)
-2. CAPM beta calculation vs market benchmark
-3. Partial correlations and tail co-movement
-4. Mean-variance optimization with RRR-based risk aversion
-5. Fallback to minimum variance when optimization fails
-"""
-
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
 import numpy as np

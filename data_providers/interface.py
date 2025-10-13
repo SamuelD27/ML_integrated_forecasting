@@ -1,11 +1,3 @@
-"""
-Provider-Agnostic Derivatives Data Interface
-============================================
-
-Abstract base class for derivatives data providers.
-Concrete implementations: YahooFinanceProvider, TradierProvider, FinnhubProvider
-"""
-
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 from enum import Enum

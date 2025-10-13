@@ -1,13 +1,3 @@
-"""
-Comprehensive Quick Stock Report
----------------------------------
-Runs all single-stock analyses and produces a hedge-fund-ready Excel report.
-
-Output:
-- Summary page: Key metrics, valuation, risk assessment, recommendation
-- Charts appendix: Price history, returns distribution, volatility, forecasts
-"""
-
 import argparse
 import sys
 from pathlib import Path

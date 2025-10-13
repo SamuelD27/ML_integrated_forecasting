@@ -1,17 +1,3 @@
-"""
-Attention-based Fusion Layer
-=============================
-
-This module implements the fusion mechanism to combine outputs from
-CNN, LSTM, and Transformer modules using attention-based weighting.
-
-Features:
-- Multi-modal attention fusion
-- Feature importance weighting
-- Gating mechanisms
-- Unified representation output
-"""
-
 from __future__ import annotations
 
 import torch

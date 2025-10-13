@@ -1,11 +1,3 @@
-"""
-Advanced Derivatives Engine
-============================
-
-Comprehensive derivative instruments for hedging and return enhancement.
-Includes: Options, Futures, Swaps, Forwards, and structured products.
-"""
-
 import numpy as np
 import pandas as pd
 import yfinance as yf

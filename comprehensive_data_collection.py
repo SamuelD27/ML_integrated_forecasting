@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-Comprehensive Data Collection for ML Training
-=============================================
-
-This script collects all necessary data for training the hybrid deep learning model:
-- Historical OHLCV data (multiple timeframes)
-- Options data (calls, puts, greeks)
-- Fundamental data (financials, ratios)
-- Market data (indices, VIX, bonds, forex)
-- Alternative data (sentiment, news frequency)
-
-Data is saved in an organized structure optimized for ML training.
-"""
 
 from __future__ import annotations
 

@@ -1,17 +1,3 @@
-"""
-1D CNN Module for Short-term Pattern Extraction
-================================================
-
-This module implements a 1D Convolutional Neural Network designed to extract
-short-term patterns from financial time series data (1-5 day windows).
-
-Features:
-- Multiple kernel sizes for multi-scale feature extraction
-- Batch normalization for training stability
-- Dropout for regularization
-- Residual connections for better gradient flow
-"""
-
 from __future__ import annotations
 
 import torch

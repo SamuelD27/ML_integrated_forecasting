@@ -1,11 +1,3 @@
-"""
-Base class for hybrid deep learning models.
-===========================================
-
-Provides common interface, training loops, checkpointing, and metrics tracking
-for all hybrid model components.
-"""
-
 from __future__ import annotations
 
 import torch

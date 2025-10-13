@@ -1,11 +1,3 @@
-"""
-Quick Test Script for Hybrid Deep Learning Trading System
-==========================================================
-
-This script tests the advanced feature engineering and hybrid model components
-to ensure everything is working correctly before proceeding with additional phases.
-"""
-
 import sys
 import numpy as np
 import pandas as pd

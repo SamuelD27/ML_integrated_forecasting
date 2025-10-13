@@ -1,16 +1,3 @@
-"""
-Advanced Time Series Forecasting
----------------------------------
-Combines statistical models (ARIMA, GARCH) with deep learning (LSTM)
-for comprehensive stock price forecasting with rigorous evaluation.
-
-Includes:
-- Traditional: ARIMA, Exponential Smoothing, GARCH
-- Deep Learning: LSTM with attention
-- Ensemble methods
-- Comprehensive evaluation: RMSE, MAE, Directional Accuracy, Sharpe
-"""
-
 from __future__ import annotations
 
 import argparse

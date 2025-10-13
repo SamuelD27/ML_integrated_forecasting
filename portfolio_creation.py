@@ -1,19 +1,3 @@
-"""
-Multi-Asset Portfolio Constructor with Options Overlay
-=======================================================
-
-Complete portfolio construction workflow using only yfinance:
-1. Dynamic peer discovery (same exchange + sector/industry)
-2. ETF selection (sector ETF, low-vol ETF, market ETF)
-3. Options overlay (protective puts/collars with greeks/IV)
-4. Advanced portfolio optimization (shrinkage covariance, CAPM beta, RRR-based)
-5. Comprehensive Excel reporting
-
-Usage:
-    python portfolio_creation.py TICKER --capital 100000 --rrr 0.6
-    python portfolio_creation.py AAPL --capital 50000 --rrr 0.8 --start 2023-01-01
-"""
-
 import argparse
 import sys
 from pathlib import Path

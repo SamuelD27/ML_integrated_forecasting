@@ -1,11 +1,3 @@
-"""
-ML Stock Selection Model
-=========================
-
-LightGBM/XGBoost-based stock ranking for cross-sectional selection.
-Features → Ranking scores → Top-N selection with time-series CV.
-"""
-
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple

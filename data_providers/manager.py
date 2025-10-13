@@ -1,14 +1,3 @@
-"""
-Data Provider Manager
-=====================
-
-Manages multiple derivatives providers with:
-- Priority-based fallback
-- Parquet caching with TTL
-- Automatic retry with exponential backoff
-- Schema normalization and merging
-"""
-
 import pandas as pd
 import numpy as np
 from pathlib import Path

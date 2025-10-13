@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-RunPod GPU Training Orchestration Script
-Handles remote training, model artifact management, and experiment tracking
-"""
 
 import os
 import sys

@@ -1,11 +1,3 @@
-"""
-Comprehensive data processing and feature engineering for financial time series.
-
-This module computes and caches a full suite of descriptive statistics, risk metrics,
-and derived features for stock analysis. All computed metrics are stored for reuse
-in forecasting, simulation, and portfolio analysis.
-"""
-
 from __future__ import annotations
 
 import pandas as pd

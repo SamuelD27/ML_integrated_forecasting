@@ -1,15 +1,3 @@
-"""
-Feature Engineering for ML Models
-==================================
-
-Comprehensive feature engineering for stock selection and forecasting:
-- Returns-based features (momentum, mean reversion)
-- Volatility and risk metrics
-- Technical indicators (RSI, MACD, Bollinger)
-- Quality metrics (volume, liquidity, stability)
-- Relative features (beta, correlation, sector performance)
-"""
-
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple

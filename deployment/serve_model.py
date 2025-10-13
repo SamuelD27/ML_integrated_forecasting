@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Model Serving and API Deployment
-FastAPI-based REST API for real-time model inference with security
-"""
 
 import os
 import sys

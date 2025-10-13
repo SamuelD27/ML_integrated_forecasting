@@ -1,11 +1,3 @@
-"""
-Hybrid Model Training Pipeline
-===============================
-
-Main training script for the hybrid deep learning trading model with
-walk-forward cross-validation and comprehensive evaluation.
-"""
-
 from __future__ import annotations
 
 import argparse

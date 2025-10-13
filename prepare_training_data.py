@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-Prepare Training Data for Hybrid Model
-=======================================
-
-This script prepares the collected data specifically for training the hybrid deep learning model.
-It creates train/validation/test splits with proper temporal ordering and feature engineering.
-"""
 
 import pandas as pd
 import numpy as np

@@ -1,17 +1,3 @@
-"""
-Polygon.io Data Provider
-=========================
-
-Concrete implementation of DerivativesProvider for Polygon.io API.
-
-Features:
-- Real-time and historical stock data
-- Options data
-- Comprehensive market data
-- Free tier: 5 API calls/minute
-- Paid tiers: Unlimited calls, real-time data
-"""
-
 from typing import List, Optional
 import pandas as pd
 import requests

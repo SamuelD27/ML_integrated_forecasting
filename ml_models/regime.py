@@ -1,11 +1,3 @@
-"""
-Regime Detection
-================
-
-Volatility-based regime detection for adaptive model weighting.
-Identifies bull/bear/high-volatility regimes to adjust portfolio strategy.
-"""
-
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional

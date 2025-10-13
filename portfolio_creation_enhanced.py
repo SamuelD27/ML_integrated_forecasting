@@ -1,21 +1,3 @@
-"""
-Enhanced Multi-Asset Portfolio Constructor with Advanced Analytics
-===================================================================
-
-Complete portfolio construction workflow with:
-1. Dynamic peer discovery (same exchange + sector/industry)
-2. ETF selection (sector ETF, low-vol ETF, market ETF)
-3. Multiple derivative instruments (options, futures, swaps, variance swaps, etc.)
-4. Advanced portfolio optimization (shrinkage covariance, CAPM beta, RRR-based)
-5. Monte Carlo simulations (10,000+ paths)
-6. Comprehensive visualizations and insights
-7. Excel reporting with charts and detailed analysis
-
-Usage:
-    python portfolio_creation_enhanced.py TICKER --capital 100000 --rrr 0.6
-    python portfolio_creation_enhanced.py AAPL --capital 50000 --rrr 0.8 --start 2023-01-01
-"""
-
 import argparse
 import sys
 from pathlib import Path

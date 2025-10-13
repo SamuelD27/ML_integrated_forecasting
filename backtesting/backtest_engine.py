@@ -1,11 +1,3 @@
-"""
-Backtesting Engine
-==================
-
-Realistic backtesting framework with transaction costs, slippage,
-and comprehensive performance metrics.
-"""
-
 from __future__ import annotations
 
 import numpy as np

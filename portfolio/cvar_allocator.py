@@ -1,15 +1,3 @@
-"""
-CVaR-Based Portfolio Allocator
-================================
-
-Enhanced multi-asset allocator with:
-- CVaR (Conditional Value at Risk) optimization
-- Sector/country constraints
-- Turnover penalties
-- Beta alignment with futures/ETFs
-- ML score integration
-"""
-
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple

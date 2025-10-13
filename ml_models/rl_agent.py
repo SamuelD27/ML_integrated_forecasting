@@ -1,18 +1,3 @@
-"""
-Deep Reinforcement Learning Trading Agent
-==========================================
-
-This module implements a PPO (Proximal Policy Optimization) agent for
-algorithmic trading with risk-aware reward functions and position sizing.
-
-Features:
-- Custom trading environment (OpenAI Gym compatible)
-- PPO with actor-critic architecture
-- Risk constraints (max drawdown, position limits)
-- Sharpe ratio optimization
-- Transaction cost modeling
-"""
-
 from __future__ import annotations
 
 import gymnasium as gym

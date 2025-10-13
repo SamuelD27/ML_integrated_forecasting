@@ -1,12 +1,3 @@
-"""
-Comprehensive Equity Valuation Module
--------------------------------------
-Advanced valuation analysis using market data, fundamentals, and technical indicators.
-Includes DCF, relative valuation, and market-based metrics.
-
-Fully integrated with data fetching and processing pipeline.
-"""
-
 from __future__ import annotations
 
 import argparse

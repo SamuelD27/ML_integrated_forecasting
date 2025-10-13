@@ -1,16 +1,3 @@
-"""
-data_fetching.py
-=================
-
-Comprehensive data fetching module for stock analysis. Retrieves and persists:
-- Historical OHLCV price data
-- Dividends and stock splits
-- Corporate actions
-- Company metadata and fundamentals
-
-All data is automatically saved to disk for reuse across analysis modules.
-"""
-
 from __future__ import annotations
 
 import pandas as pd

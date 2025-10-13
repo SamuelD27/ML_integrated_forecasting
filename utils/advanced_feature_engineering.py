@@ -1,21 +1,3 @@
-"""
-Advanced Feature Engineering for Hybrid Deep Learning Trading Model
-====================================================================
-
-This module provides comprehensive feature engineering for financial time series,
-creating rich feature sets optimized for hybrid CNN-LSTM-Transformer architectures.
-
-Features include:
-- Multi-timeframe price features and returns
-- Technical indicators (RSI, MACD, Bollinger Bands, etc.)
-- Frequency domain features (FFT for cyclical patterns)
-- Market microstructure metrics
-- Volatility estimators (Parkinson, Garman-Klass, Rogers-Satchell)
-- Cross-sectional features (sector relative strength)
-
-All features are designed to avoid lookahead bias through proper temporal alignment.
-"""
-
 from __future__ import annotations
 
 import numpy as np

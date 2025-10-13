@@ -1,17 +1,3 @@
-"""
-Alpha Vantage Data Provider
-============================
-
-Concrete implementation of DerivativesProvider for Alpha Vantage API.
-
-Features:
-- Real-time and historical stock data
-- Options data (premium tier required)
-- Fundamental data
-- Technical indicators
-- Free tier: 25 requests/day, 5 requests/minute
-"""
-
 from typing import List, Optional, Tuple
 import pandas as pd
 import requests

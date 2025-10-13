@@ -1,21 +1,3 @@
-"""
-ML-Enhanced Multi-Asset Portfolio Constructor
-==============================================
-
-Complete ML-enhanced portfolio construction with:
-- Multiple data providers with fallback (Yahoo, Tradier, Finnhub)
-- Feature engineering (30+ technical features)
-- ML stock selection (LightGBM/XGBoost ranking)
-- Regime detection (volatility-based)
-- CVaR portfolio optimization
-- Options overlay with greeks
-- Comprehensive Excel reporting with charts and diagnostics
-
-Usage:
-    python portfolio_creation_ml.py TICKER --capital 100000 --rrr 0.6 [--enable-ml]
-    python portfolio_creation_ml.py AAPL --capital 50000 --rrr 0.8 --enable-ml --ml-top-n 15
-"""
-
 import argparse
 import sys
 from pathlib import Path

@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Comprehensive Unit Tests for ML Models
-Tests all components of the hybrid deep learning trading system
-"""
 
 import unittest
 import sys
