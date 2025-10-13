@@ -2,6 +2,19 @@
 # ==================================================
 # IMPORTANT: All versions are pinned for reproducibility
 
+# ============================================================================
+# PYTHON VERSION REQUIREMENT
+# ============================================================================
+# Python 3.12+ is NOT supported due to removal of pkgutil.ImpImporter
+# Required: Python >=3.8,<3.12
+# Recommended: Python 3.11.x
+#
+# To install Python 3.11:
+#   - Using pyenv: pyenv install 3.11 && pyenv local 3.11
+#   - Using conda: conda create -n trading python=3.11
+#   - Direct download: https://www.python.org/downloads/
+# ============================================================================
+
 # Core Dependencies (existing)
 pandas==2.1.4
 numpy==1.24.3
