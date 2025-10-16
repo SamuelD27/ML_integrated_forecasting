@@ -24,7 +24,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from ml_models.hybrid_model import HybridTradingModel
 from ml_models.rl_agent import PPOAgent, TradingEnvironment, TradingConfig
 from utils.advanced_feature_engineering import AdvancedFeatureEngineer, FeatureConfig
-from training.utils import (
+from training.training_utils import (
     WalkForwardSplitter,
     TradingDataset,
     compute_trading_metrics,
