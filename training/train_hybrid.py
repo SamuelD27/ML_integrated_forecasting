@@ -289,14 +289,14 @@ def train_model(model: HybridTradingModel, train_loader: DataLoader,
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode='min',
-            factor=scheduler_config['factor'],
-            patience=scheduler_config['patience'],
-            min_lr=scheduler_config['min_lr']
+            factor=float(scheduler_config['factor']),
+            patience=int(scheduler_config['patience']),
+            min_lr=float(scheduler_config['min_lr'])
         )
     elif scheduler_config['type'] == 'cosine':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=config['training']['epochs']
+            T_max=int(config['training']['epochs'])
         )
     else:
         scheduler = None
