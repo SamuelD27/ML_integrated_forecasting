@@ -4,7 +4,7 @@
 # Data Configuration
 data:
   # Data paths
-  base_name: "last_fetch"
+  base_name: "training_data"
   features_dir: "data/features"
 
   # Time series parameters
@@ -163,7 +163,7 @@ evaluation:
 tracking:
   # Weights & Biases
   wandb:
-    enabled: false
+    enabled: true
     project: "hybrid-trading-model"
     entity: null
     tags: ["hybrid", "deep-learning", "trading"]
