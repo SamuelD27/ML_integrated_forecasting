@@ -69,9 +69,15 @@ echo ""
 echo "STEP 9: Preparing training data..."
 # python prepare_training_data.py  # Uncomment if you need to fetch fresh data
 
-# STEP 10: Launch training!
+# STEP 10: Set up Python path (CRITICAL - fixes import errors)
 echo ""
-echo "STEP 10: Starting training..."
+echo "STEP 10: Setting up Python path..."
+export PYTHONPATH="/workspace/ML_integrated_forecasting:${PYTHONPATH}"
+echo "✓ PYTHONPATH configured"
+
+# STEP 11: Launch training!
+echo ""
+echo "STEP 11: Starting training..."
 echo "=================================="
 python training/train_hybrid.py --config training/config.yaml
 
