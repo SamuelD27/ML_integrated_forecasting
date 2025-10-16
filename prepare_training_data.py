@@ -16,7 +16,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from utils.advanced_feature_engineering import AdvancedFeatureEngineer, FeatureConfig
-from data_fetching import download_data, load_current_session_data
+from data_fetching import fetch_full_bundle, save_bundle, load_last_fetch_bundle
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,8 +47,9 @@ class TrainingDataPreparer:
 
         # 1. Load from last_fetch
         try:
-            prices_df, bundle = load_current_session_data(base_name="last_fetch")
-            if prices_df is not None and not prices_df.empty:
+            bundle = load_last_fetch_bundle(base_name="last_fetch")
+            if bundle and 'prices' in bundle and not bundle['prices'].empty:
+                prices_df = bundle['prices']
                 data_sources.append(('last_fetch', prices_df, bundle))
                 logger.info(f"Loaded last_fetch data: {prices_df.shape}")
         except Exception as e:
@@ -96,17 +97,19 @@ class TrainingDataPreparer:
 
         logger.info(f"Fetching data for {len(tickers)} tickers from {start_date}")
 
-        # Download data
-        prices_df, bundle = download_data(
+        # Download data using fetch_full_bundle
+        bundle = fetch_full_bundle(
             tickers=tickers,
-            start=start_date,
-            save_to_module=True,
-            return_bundle=True
+            start=start_date
         )
 
-        if prices_df is None or prices_df.empty:
+        if not bundle or 'prices' not in bundle or bundle['prices'].empty:
             raise ValueError("Failed to fetch data from yfinance")
 
+        # Save the bundle
+        save_bundle(bundle, base_name="training_data")
+
+        prices_df = bundle['prices']
         return self._process_dataframe(prices_df, bundle.get('meta', {}))
 
     def _process_dataframe(self, df: pd.DataFrame, metadata: dict) -> Dict[str, pd.DataFrame]:
