@@ -43,7 +43,7 @@ stable-baselines3==2.2.1
 
 # Technical Analysis
 TA-Lib==0.4.28  # May require separate installation
-pandas-ta==0.3.14b0
+pandas-ta>=0.3.14  # Use stable release, not beta
 
 # Experiment Tracking
 tensorboard==2.15.1
