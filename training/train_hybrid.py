@@ -260,24 +260,27 @@ def train_model(model: HybridTradingModel, train_loader: DataLoader,
     """
     # Set up optimizer
     optimizer_type = config['training']['optimizer']
+    learning_rate = float(config['training']['learning_rate'])
+    weight_decay = float(config['training']['weight_decay'])
+
     if optimizer_type == 'adamw':
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=config['training']['learning_rate'],
-            weight_decay=config['training']['weight_decay']
+            lr=learning_rate,
+            weight_decay=weight_decay
         )
     elif optimizer_type == 'adam':
         optimizer = torch.optim.Adam(
             model.parameters(),
-            lr=config['training']['learning_rate'],
-            weight_decay=config['training']['weight_decay']
+            lr=learning_rate,
+            weight_decay=weight_decay
         )
     else:
         optimizer = torch.optim.SGD(
             model.parameters(),
-            lr=config['training']['learning_rate'],
+            lr=learning_rate,
             momentum=0.9,
-            weight_decay=config['training']['weight_decay']
+            weight_decay=weight_decay
         )
 
     # Set up scheduler
