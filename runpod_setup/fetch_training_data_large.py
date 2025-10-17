@@ -386,7 +386,7 @@ def main():
     END_DATE = datetime.now().strftime('%Y-%m-%d')
     START_DATE = (datetime.now() - timedelta(days=10*365)).strftime('%Y-%m-%d')  # 10 years
     INTERVAL = '1d'  # Daily data
-    OUTPUT_DIR = Path('data/training')
+    OUTPUT_DIR = Path('/workspace/data/training')
 
     print(f"\nConfiguration:")
     print(f"  Start date: {START_DATE}")
