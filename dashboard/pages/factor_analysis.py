@@ -212,29 +212,33 @@ def show():
 
                         betas_df = pd.DataFrame(betas_data)
 
-                        col1, col2 = st.columns(2)
+                        if not betas_df.empty:
+                            col1, col2 = st.columns(2)
 
-                        with col1:
-                            st.dataframe(
-                                betas_df.style.format({
-                                    'Beta': '{:.3f}',
-                                    'P-Value': '{:.4f}'
-                                }),
-                                use_container_width=True
-                            )
+                            with col1:
+                                st.dataframe(
+                                    betas_df.style.format({
+                                        'Beta': '{:.3f}',
+                                        'P-Value': '{:.4f}'
+                                    }),
+                                    use_container_width=True
+                                )
 
-                        with col2:
-                            # Beta chart
-                            fig_beta = px.bar(
-                                betas_df,
-                                x='Factor',
-                                y='Beta',
-                                title=f'{asset_name} Factor Betas',
-                                color='Beta',
-                                color_continuous_scale='RdBu',
-                                color_continuous_midpoint=0
-                            )
-                            st.plotly_chart(fig_beta, use_container_width=True)
+                            with col2:
+                                # Beta chart
+                                fig_beta = px.bar(
+                                    betas_df,
+                                    x='Factor',
+                                    y='Beta',
+                                    title=f'{asset_name} Factor Betas',
+                                    color='Beta',
+                                    color_continuous_scale='RdBu',
+                                    color_continuous_midpoint=0
+                                )
+                                st.plotly_chart(fig_beta, use_container_width=True)
+                        else:
+                            st.warning(f"No factor data available for {asset_name}. The regression may have failed.")
+                            st.info(f"Available result keys: {list(result.keys())}")
 
                         # Interpretation guide
                         st.markdown("""
