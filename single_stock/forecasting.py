@@ -6,11 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import warnings
+import logging
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
+
+logger = logging.getLogger(__name__)
 
 # Statistical models
 from statsmodels.tsa.arima.model import ARIMA
@@ -561,12 +564,26 @@ def fit_hybrid_model(train: np.ndarray, test: np.ndarray,
 
         full_df = pd.concat([train_df, test_df])
 
-    # Generate features
-    features_df = feature_engineer.generate_features(ticker, full_df, save_features=False)
+    # CRITICAL: Generate features ONLY on training data to avoid lookahead bias
+    # Test features will be generated incrementally during prediction
+    train_features = feature_engineer.generate_features(ticker, train_df, save_features=False)
 
-    # Split features
-    train_features = features_df.iloc[:len(train)]
-    test_features = features_df.iloc[len(train):]
+    # For test data, we'll need to generate features sequentially
+    # (this prevents lookahead bias from using test data statistics)
+    # Note: In production forecasting, we would only have historical data anyway
+    test_features_list = []
+    for i in range(len(test)):
+        # Create incremental dataset: train + test data up to current point
+        current_idx = len(train) + i + 1
+        current_df = pd.concat([train_df, test_df.iloc[:i+1]])
+
+        # Generate features for this point
+        current_features = feature_engineer.generate_features(ticker, current_df, save_features=False)
+
+        # Take only the last row (current point)
+        test_features_list.append(current_features.iloc[-1:])
+
+    test_features = pd.concat(test_features_list, ignore_index=True) if test_features_list else pd.DataFrame()
 
     # Prepare sequences
     X_train, y_train = create_sequences(train_features.values, lookback, forecast_horizon)
@@ -740,36 +757,125 @@ def build_lstm_model(lookback: int, n_features: int = 1,
     return model
 
 
+def validate_dropout_active(model: keras.Model) -> bool:
+    """
+    Validate that model has active dropout layers for MC dropout.
+
+    Args:
+        model: Keras model to validate
+
+    Returns:
+        True if dropout is active
+
+    Raises:
+        ValueError: If no dropout layers or all rates are 0
+    """
+    dropout_layers = [layer for layer in model.layers if isinstance(layer, layers.Dropout)]
+
+    if not dropout_layers:
+        raise ValueError("Model has no Dropout layers! Monte Carlo dropout won't work.")
+
+    dropout_rates = [layer.rate for layer in dropout_layers]
+    if all(rate == 0 for rate in dropout_rates):
+        raise ValueError("All dropout rates are 0! Monte Carlo dropout won't work.")
+
+    logger.info(f"Found {len(dropout_layers)} dropout layers with rates: {dropout_rates}")
+    return True
+
+
+def validate_uncertainty_calibration(predictions: np.ndarray,
+                                    uncertainties: np.ndarray,
+                                    actuals: np.ndarray) -> Dict[str, float]:
+    """
+    Check if uncertainty estimates are well-calibrated.
+
+    If predictions are within 1-sigma uncertainty 68% of the time,
+    and within 2-sigma 95% of the time, uncertainties are well-calibrated.
+
+    Args:
+        predictions: Point predictions
+        uncertainties: 1-sigma uncertainty estimates
+        actuals: Actual values
+
+    Returns:
+        Dictionary with calibration metrics
+    """
+    errors = np.abs(predictions - actuals)
+
+    within_1_sigma = (errors < uncertainties).mean()
+    within_2_sigma = (errors < 2 * uncertainties).mean()
+
+    logger.info(f"Calibration: {within_1_sigma:.1%} within 1σ (expect ~68%)")
+    logger.info(f"Calibration: {within_2_sigma:.1%} within 2σ (expect ~95%)")
+
+    # Check calibration
+    calibration_quality = "good"
+    if within_1_sigma < 0.60 or within_1_sigma > 0.76:
+        logger.warning("Uncertainty estimates poorly calibrated at 1σ")
+        calibration_quality = "poor"
+    if within_2_sigma < 0.90 or within_2_sigma > 0.98:
+        logger.warning("Uncertainty estimates poorly calibrated at 2σ")
+        calibration_quality = "poor"
+
+    return {
+        'within_1_sigma': within_1_sigma,
+        'within_2_sigma': within_2_sigma,
+        'calibration_quality': calibration_quality
+    }
+
+
 def fit_lstm_model(train: np.ndarray, test: np.ndarray,
                   lookback: int = 60, forecast_horizon: int = 1,
-                  epochs: int = 50, batch_size: int = 32) -> Optional[ForecastResult]:
-    """Fit LSTM model with Monte Carlo dropout for uncertainty estimation."""
+                  epochs: int = 50, batch_size: int = 32,
+                  mc_iterations: int = 500) -> Optional[ForecastResult]:
+    """
+    Fit LSTM model with Monte Carlo dropout for uncertainty estimation.
+
+    Args:
+        train: Training data
+        test: Test data
+        lookback: Lookback window for sequences
+        forecast_horizon: Forecasting horizon
+        epochs: Training epochs
+        batch_size: Batch size for training
+        mc_iterations: Number of Monte Carlo iterations (default: 500, increased from 100)
+
+    Returns:
+        ForecastResult with predictions and calibrated uncertainty estimates
+    """
     if not HAS_TENSORFLOW:
         return None
-    
+
     import time
     start_time = time.time()
-    
+
     # Normalize data
     train_mean, train_std = train.mean(), train.std()
     if train_std == 0:
         train_std = 1.0
     train_norm = (train - train_mean) / train_std
     test_norm = (test - train_mean) / train_std
-    
+
     # Create sequences
     X_train, y_train = create_sequences(train_norm, lookback, forecast_horizon)
     X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-    
+
     # Build and train model
     model = build_lstm_model(lookback, 1, forecast_horizon)
     if model is None:
         return None
-    
+
+    # Validate dropout is active
+    try:
+        validate_dropout_active(model)
+    except ValueError as e:
+        logger.error(f"Dropout validation failed: {e}")
+        return None
+
     early_stop = keras.callbacks.EarlyStopping(
         monitor='loss', patience=10, restore_best_weights=True
     )
-    
+
     model.fit(
         X_train, y_train,
         epochs=epochs,
@@ -777,9 +883,10 @@ def fit_lstm_model(train: np.ndarray, test: np.ndarray,
         verbose=0,
         callbacks=[early_stop]
     )
-    
+
     # Make predictions with uncertainty (Monte Carlo dropout)
-    n_iterations = 100
+    # Increased from 100 to 500 for more stable uncertainty estimates
+    n_iterations = mc_iterations
     all_predictions = []
     history = train_norm[-lookback:].tolist()
     

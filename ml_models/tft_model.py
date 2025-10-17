@@ -169,6 +169,66 @@ class TFTStockForecaster:
 
         return df
 
+    def _classify_features(self, data: pd.DataFrame) -> Tuple[List[str], List[str]]:
+        """
+        Explicitly classify features as known vs unknown.
+
+        Known features: We know them in advance (calendar, scheduled events)
+        Unknown features: We don't know until they happen (prices, volumes, technical indicators)
+
+        Returns:
+            Tuple of (known_features, unknown_features)
+        """
+        # Known features - we know these in advance
+        known_patterns = [
+            'day_of_week', 'month', 'quarter', 'year',
+            'is_month_end', 'is_month_start', 'is_quarter_end',
+            'is_year_end', 'days_in_month', 'week_of_year',
+            'day_of_month', 'day_of_year', 'is_weekend',
+            'is_holiday', 'time_idx',  # Explicit time features
+        ]
+
+        # Unknown features - we don't know these until they happen
+        unknown_patterns = [
+            'open', 'high', 'low', 'close', 'volume', 'adj_close', 'adj close',
+            'return', 'log_return', 'volatility', 'momentum', 'vwap',
+            'rsi', 'macd', 'bollinger', 'bb_', 'atr', 'obv',
+            'ema', 'sma', 'wma', 'stdev', 'std', 'var',
+            'beta', 'alpha', 'sharpe', 'sortino',
+            'drawdown', 'skew', 'kurt', 'corr',
+            'spread', 'bid', 'ask', 'trade',
+            'norm_', 'z_score', 'zscore',  # Normalized/standardized features
+            'fft_', 'wavelet_',  # Frequency domain features
+            'hl_', 'oc_', 'price_', 'vol_',  # Composite features
+        ]
+
+        numeric_cols = data.select_dtypes(include=[np.number]).columns
+
+        # Exclude target, time index, group ids
+        exclude_cols = [self.config.target_col, self.config.time_idx_col] + self.config.group_ids
+
+        known_features = []
+        unknown_features = []
+
+        for col in numeric_cols:
+            if col in exclude_cols:
+                continue
+
+            col_lower = col.lower()
+
+            # Check if it's a known feature
+            if any(pattern in col_lower for pattern in known_patterns):
+                known_features.append(col)
+            # Check if it's an unknown feature
+            elif any(pattern in col_lower for pattern in unknown_patterns):
+                unknown_features.append(col)
+            else:
+                # Default: treat as unknown (safer assumption)
+                logger.warning(f"Feature '{col}' classification unclear, treating as unknown")
+                unknown_features.append(col)
+
+        return known_features, unknown_features
+
     def create_dataset(
         self,
         data: pd.DataFrame,
@@ -184,23 +244,24 @@ class TFTStockForecaster:
         Returns:
             TimeSeriesDataSet
         """
-        # Update config with actual column names from data
-        if not self.config.time_varying_unknown_reals:
-            # Auto-detect numeric columns (exclude target, time_idx, group_ids, known features)
-            exclude_cols = (
-                [self.config.target_col, self.config.time_idx_col] +
-                self.config.group_ids +
-                self.config.time_varying_known_reals +
-                ['date']
-            )
+        # Update config with explicit feature classification
+        if not self.config.time_varying_unknown_reals or not self.config.time_varying_known_reals:
+            known_features, unknown_features = self._classify_features(data)
 
-            numeric_cols = data.select_dtypes(include=[np.number]).columns
-            unknown_reals = [col for col in numeric_cols if col not in exclude_cols]
+            # Update config
+            if not self.config.time_varying_known_reals:
+                self.config.time_varying_known_reals = known_features
 
-            self.config.time_varying_unknown_reals = unknown_reals[:30]  # Limit to top 30 features
+            if not self.config.time_varying_unknown_reals:
+                # Limit to top 30 unknown features to avoid model complexity
+                self.config.time_varying_unknown_reals = unknown_features[:30]
 
-            logger.info(f"Auto-detected {len(self.config.time_varying_unknown_reals)} "
-                       f"time-varying unknown reals")
+            logger.info(f"Classified features:")
+            logger.info(f"  Known features ({len(self.config.time_varying_known_reals)}): "
+                       f"{self.config.time_varying_known_reals}")
+            logger.info(f"  Unknown features ({len(self.config.time_varying_unknown_reals)}): "
+                       f"{self.config.time_varying_unknown_reals[:10]}..."  # Show first 10
+                       f"(total: {len(self.config.time_varying_unknown_reals)})")
 
         if training:
             dataset = TimeSeriesDataSet(

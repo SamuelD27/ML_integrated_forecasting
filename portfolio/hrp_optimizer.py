@@ -111,6 +111,10 @@ class HRPOptimizer:
         cov = returns.cov()
         corr = returns.corr()
 
+        # Validate covariance matrix
+        if not self._validate_covariance_matrix(cov):
+            logger.warning("Covariance matrix validation failed, results may be unreliable")
+
         # Step 1: Tree clustering
         distance_matrix = self._calculate_distance_matrix(corr)
         link = linkage(squareform(distance_matrix), method=self.linkage_method)
@@ -179,7 +183,7 @@ class HRPOptimizer:
 
     def _calculate_distance_matrix(self, corr: pd.DataFrame) -> np.ndarray:
         """
-        Calculate distance matrix from correlation matrix.
+        Calculate distance matrix from correlation matrix with numerical stability.
 
         Args:
             corr: Correlation matrix
@@ -187,12 +191,22 @@ class HRPOptimizer:
         Returns:
             Distance matrix (condensed form for scipy linkage)
         """
+        # Validate correlation matrix
+        if not self._validate_correlation_matrix(corr):
+            logger.warning("Correlation matrix validation failed, proceeding with caution")
+
+        # Clip correlations to valid range [-1, 1] (handles numerical errors)
+        corr_clipped = np.clip(corr.values, -1.0, 1.0)
+        corr = pd.DataFrame(corr_clipped, index=corr.index, columns=corr.columns)
+
         if self.distance_metric == 'correlation':
             # Lopez de Prado: distance = sqrt(0.5 * (1 - correlation))
-            dist = np.sqrt(0.5 * (1 - corr))
+            # Ensure (1 - corr) / 2 is non-negative before sqrt
+            dist = np.sqrt(np.maximum(0.5 * (1 - corr), 0))
         elif self.distance_metric == 'euclidean':
             # Euclidean distance between correlation vectors
-            dist = np.sqrt(2 * (1 - corr))
+            # Ensure 2 * (1 - corr) is non-negative before sqrt
+            dist = np.sqrt(np.maximum(2 * (1 - corr), 0))
         else:
             # Manhattan distance
             dist = 1 - np.abs(corr)
@@ -201,7 +215,92 @@ class HRPOptimizer:
         dist = dist.fillna(1)  # NaN correlations = max distance
         dist = dist.clip(lower=0)  # No negative distances
 
+        # Check for NaN or Inf
+        if np.any(~np.isfinite(dist)):
+            logger.error("Distance matrix contains NaN or Inf values!")
+            raise ValueError("Invalid distance matrix")
+
         return dist.values
+
+    def _validate_covariance_matrix(self, cov: pd.DataFrame) -> bool:
+        """
+        Validate covariance matrix properties.
+
+        Args:
+            cov: Covariance matrix
+
+        Returns:
+            True if validation passes
+        """
+        # Check symmetry
+        if not np.allclose(cov, cov.T, rtol=1e-5):
+            logger.error("Covariance matrix is not symmetric!")
+            return False
+
+        # Check positive semi-definite (eigenvalues >= 0)
+        eigenvalues = np.linalg.eigvals(cov.values)
+        if np.any(eigenvalues < -1e-8):  # Allow small numerical errors
+            logger.error(f"Covariance matrix is not PSD! Min eigenvalue: {eigenvalues.min()}")
+            return False
+
+        # Check for reasonable values
+        variances = np.diag(cov)
+        if np.any(variances < 0):
+            logger.error("Negative variances detected!")
+            return False
+
+        if np.any(variances == 0):
+            zero_var_assets = cov.index[variances == 0].tolist()
+            logger.error(f"Zero variance assets detected: {zero_var_assets}")
+            return False
+
+        # Check for very small variances (numerical instability)
+        min_variance = 1e-8
+        if np.any(variances < min_variance):
+            small_var_assets = cov.index[variances < min_variance].tolist()
+            logger.warning(f"Assets with very small variance: {small_var_assets}")
+
+        # Check correlations are in valid range
+        std_devs = np.sqrt(variances)
+        std_outer = np.outer(std_devs, std_devs)
+        epsilon = 1e-10
+        corr = cov / (std_outer + epsilon)
+
+        if np.any(np.abs(corr) > 1.001):  # Allow tiny numerical error
+            logger.error("Invalid correlations detected in covariance matrix (abs > 1)")
+            return False
+
+        logger.info("✓ Covariance matrix validation passed")
+        return True
+
+    def _validate_correlation_matrix(self, corr: pd.DataFrame) -> bool:
+        """
+        Validate correlation matrix properties.
+
+        Args:
+            corr: Correlation matrix
+
+        Returns:
+            True if validation passes
+        """
+        # Check symmetry
+        if not np.allclose(corr, corr.T, rtol=1e-5):
+            logger.error("Correlation matrix is not symmetric!")
+            return False
+
+        # Check correlations are in valid range [-1, 1]
+        if np.any(np.abs(corr.values) > 1.001):  # Allow tiny numerical error
+            max_corr = np.abs(corr.values).max()
+            logger.error(f"Invalid correlations detected (abs > 1): max={max_corr}")
+            return False
+
+        # Check diagonal is 1
+        diagonal = np.diag(corr.values)
+        if not np.allclose(diagonal, 1.0, rtol=1e-5):
+            logger.warning(f"Correlation diagonal not 1.0: {diagonal}")
+
+        logger.info("✓ Correlation matrix validation passed")
+        return True
 
     def _quasi_diag(self, link: np.ndarray) -> List[int]:
         """
