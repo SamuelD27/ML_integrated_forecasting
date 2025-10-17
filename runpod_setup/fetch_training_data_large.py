@@ -108,18 +108,48 @@ def fetch_ticker_data(ticker: str, start_date: str, end_date: str, interval: str
             # Flatten multi-index by taking first level
             data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
 
-        # Ensure standard column names (remove any ticker suffixes)
-        # Sometimes yfinance adds ticker suffix like 'Close_AAPL'
+        # Standardize column names to expected format
+        # Map any variations to standard OHLCV names
+        standard_cols = {
+            'Date': 'Date',
+            'Open': 'Open',
+            'High': 'High',
+            'Low': 'Low',
+            'Close': 'Close',
+            'Volume': 'Volume',
+            'Adj Close': 'Close'  # Use Close if Adj Close exists
+        }
+
+        # Create mapping for current columns
         column_mapping = {}
         for col in data.columns:
             col_str = str(col)
-            # Check if column ends with ticker suffix
-            if col_str.endswith(f'_{ticker}'):
-                base_col = col_str.replace(f'_{ticker}', '')
-                column_mapping[col] = base_col
+            # Check if it matches standard name
+            if col_str in standard_cols:
+                column_mapping[col] = standard_cols[col_str]
+            # Check if it has ticker suffix
+            else:
+                for std_name in standard_cols.keys():
+                    if col_str.startswith(std_name) or col_str.endswith(f'_{ticker}'):
+                        # Extract base name
+                        base = col_str.replace(f'_{ticker}', '').strip('_')
+                        if base in standard_cols:
+                            column_mapping[col] = standard_cols[base]
+                            break
 
+        # Rename columns
         if column_mapping:
             data = data.rename(columns=column_mapping)
+
+        # Ensure we have required columns
+        required = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+        missing = [c for c in required if c not in data.columns]
+        if missing:
+            logger.error(f"Missing columns for {ticker}: {missing}. Have: {data.columns.tolist()}")
+            return None
+
+        # Select only the required columns
+        data = data[required].copy()
 
         # Add ticker column
         data['ticker'] = ticker
