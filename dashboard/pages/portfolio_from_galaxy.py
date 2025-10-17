@@ -148,10 +148,13 @@ def show():
                     return
 
                 # Get adjusted close prices
+                # Check if 'Adj Close' exists, otherwise use 'Close'
+                price_col = 'Adj Close' if 'Adj Close' in data.columns else 'Close'
+
                 if len(tickers) == 1:
-                    prices = data['Adj Close'].to_frame(tickers[0])
+                    prices = data[price_col].to_frame(tickers[0])
                 else:
-                    prices = data['Adj Close']
+                    prices = data[price_col]
 
                 # Handle missing data
                 prices = prices.dropna(axis=1, how='all')  # Drop tickers with no data
