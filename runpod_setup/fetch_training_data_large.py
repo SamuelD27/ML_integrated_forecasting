@@ -189,34 +189,37 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     # Group by ticker for calculations
     for ticker in df['ticker'].unique():
         mask = df['ticker'] == ticker
-        ticker_data = df.loc[mask, 'Close']
+        ticker_indices = df[mask].index
+        ticker_data = df.loc[ticker_indices, 'Close'].copy()
 
         # Returns
-        df.loc[mask, 'returns'] = ticker_data.pct_change()
-        df.loc[mask, 'log_returns'] = np.log(ticker_data / ticker_data.shift(1))
+        df.loc[ticker_indices, 'returns'] = ticker_data.pct_change().values
+        df.loc[ticker_indices, 'log_returns'] = np.log(ticker_data / ticker_data.shift(1)).values
 
         # Moving averages
-        df.loc[mask, 'sma_5'] = ticker_data.rolling(5).mean()
-        df.loc[mask, 'sma_10'] = ticker_data.rolling(10).mean()
-        df.loc[mask, 'sma_20'] = ticker_data.rolling(20).mean()
-        df.loc[mask, 'sma_50'] = ticker_data.rolling(50).mean()
+        df.loc[ticker_indices, 'sma_5'] = ticker_data.rolling(5).mean().values
+        df.loc[ticker_indices, 'sma_10'] = ticker_data.rolling(10).mean().values
+        df.loc[ticker_indices, 'sma_20'] = ticker_data.rolling(20).mean().values
+        df.loc[ticker_indices, 'sma_50'] = ticker_data.rolling(50).mean().values
 
         # Volatility
-        returns = df.loc[mask, 'returns']
-        df.loc[mask, 'volatility_5'] = returns.rolling(5).std()
-        df.loc[mask, 'volatility_20'] = returns.rolling(20).std()
+        returns = ticker_data.pct_change()
+        df.loc[ticker_indices, 'volatility_5'] = returns.rolling(5).std().values
+        df.loc[ticker_indices, 'volatility_20'] = returns.rolling(20).std().values
 
         # Volume features
-        volume = df.loc[mask, 'Volume']
-        df.loc[mask, 'volume_sma_20'] = volume.rolling(20).mean()
-        df.loc[mask, 'volume_ratio'] = volume / df.loc[mask, 'volume_sma_20']
+        volume = df.loc[ticker_indices, 'Volume'].copy()
+        volume_sma = volume.rolling(20).mean()
+        df.loc[ticker_indices, 'volume_sma_20'] = volume_sma.values
+        df.loc[ticker_indices, 'volume_ratio'] = (volume / volume_sma).values
 
         # RSI
         delta = ticker_data.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
-        df.loc[mask, 'rsi'] = 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
+        df.loc[ticker_indices, 'rsi'] = rsi.values
 
     logger.info(f"Added {df.shape[1] - 7} technical features")  # Subtract original columns
 
