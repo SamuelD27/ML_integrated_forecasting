@@ -23,14 +23,43 @@ from typing import List, Dict, Optional
 
 # Import our modules
 import sys
-sys.path.append('..')
+import os
+from pathlib import Path
 
-from portfolio.factor_models import FamaFrenchFactorModel
-from portfolio.long_short_strategy import create_market_neutral_portfolio, LongShortStrategy
-from portfolio.hrp_optimizer import HRPOptimizer, compare_hrp_vs_meanvar
-from backtesting.vectorbt_engine import VectorBTBacktest, BacktestConfig, TransactionCosts
-from utils.financial_metrics import FinancialMetrics
-from ml_models.features import FeatureEngineer
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+# Try importing required modules, provide helpful errors if missing
+try:
+    from portfolio.factor_models import FamaFrenchFactorModel
+    from portfolio.long_short_strategy import (
+        create_market_neutral_portfolio,
+        LongShortStrategy,
+        PortfolioConstraints,
+        FactorWeights
+    )
+    from portfolio.hrp_optimizer import HRPOptimizer, compare_hrp_vs_meanvar
+    from backtesting.vectorbt_engine import VectorBTBacktest, BacktestConfig, TransactionCosts
+    from utils.financial_metrics import FinancialMetrics
+    from ml_models.features import FeatureEngineer
+except ImportError as e:
+    # If imports fail, we'll handle it gracefully in the UI
+    import_error = str(e)
+    FamaFrenchFactorModel = None
+    create_market_neutral_portfolio = None
+    LongShortStrategy = None
+    PortfolioConstraints = None
+    FactorWeights = None
+    HRPOptimizer = None
+    compare_hrp_vs_meanvar = None
+    VectorBTBacktest = None
+    BacktestConfig = None
+    TransactionCosts = None
+    FinancialMetrics = None
+    FeatureEngineer = None
+else:
+    import_error = None
 
 # Page config
 st.set_page_config(
@@ -40,17 +69,42 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS - Fix metric readability
 st.markdown("""
 <style>
     .main {
         padding: 0rem 1rem;
     }
+
+    /* Fix metric contrast - make text highly readable */
     .stMetric {
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 5px;
+        background-color: #ffffff !important;
+        padding: 15px !important;
+        border-radius: 8px !important;
+        border: 2px solid #e0e0e0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
     }
+
+    /* Metric label - dark text */
+    .stMetric label {
+        color: #1f1f1f !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+
+    /* Metric value - very dark text, large */
+    .stMetric [data-testid="stMetricValue"] {
+        color: #000000 !important;
+        font-size: 28px !important;
+        font-weight: 700 !important;
+    }
+
+    /* Metric delta - keep default colors but ensure visibility */
+    .stMetric [data-testid="stMetricDelta"] {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+    }
+
     .reportview-container .main .block-container {
         max-width: 1400px;
     }
@@ -58,27 +112,130 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ============================================================================
+# DATA EXTRACTION HELPER FUNCTIONS
+# ============================================================================
+
+def get_price_column(data: pd.DataFrame,
+                     tickers: List[str],
+                     prefer_adjusted: bool = True) -> pd.DataFrame:
+    """
+    Safely extract price data from yfinance DataFrame.
+
+    Handles both single-ticker and multi-ticker formats.
+    Falls back to 'Close' if 'Adj Close' not available.
+
+    Args:
+        data: Raw DataFrame from yfinance
+        tickers: List of ticker symbols
+        prefer_adjusted: If True, prefer 'Adj Close' over 'Close'
+
+    Returns:
+        DataFrame with tickers as columns, dates as index
+
+    Raises:
+        ValueError: If no price columns found
+
+    Example:
+        >>> data = yf.download(['AAPL', 'MSFT'], period='1y')
+        >>> prices = get_price_column(data, ['AAPL', 'MSFT'])
+    """
+    if data.empty:
+        raise ValueError("Empty DataFrame provided")
+
+    # Check if MultiIndex columns (multiple tickers)
+    if isinstance(data.columns, pd.MultiIndex):
+        # Multi-ticker format: ('Adj Close', 'AAPL'), ('Close', 'AAPL'), etc.
+        try:
+            # Try to get Adj Close for all tickers
+            if prefer_adjusted and 'Adj Close' in data.columns.get_level_values(0):
+                prices = data['Adj Close'].copy()
+            elif 'Close' in data.columns.get_level_values(0):
+                prices = data['Close'].copy()
+            else:
+                raise ValueError(f"No price columns found. Available: {data.columns.get_level_values(0).unique().tolist()}")
+
+            # Verify we got data for requested tickers
+            missing = set(tickers) - set(prices.columns)
+            if missing:
+                raise ValueError(f"Missing data for tickers: {missing}")
+
+            return prices
+
+        except Exception as e:
+            raise ValueError(f"Failed to extract prices from multi-ticker data: {e}")
+
+    else:
+        # Single ticker format: simple columns ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+        if len(tickers) != 1:
+            raise ValueError(f"Expected 1 ticker but got {len(tickers)}: {tickers}")
+
+        ticker = tickers[0]
+
+        # Try Adj Close first, then Close
+        if prefer_adjusted and 'Adj Close' in data.columns:
+            prices = pd.DataFrame({ticker: data['Adj Close']})
+        elif 'Close' in data.columns:
+            prices = pd.DataFrame({ticker: data['Close']})
+        else:
+            raise ValueError(f"No price columns found. Available: {data.columns.tolist()}")
+
+        return prices
+
+
 # Cache data functions
 @st.cache_data(ttl=3600)
 def load_stock_data(tickers: List[str], period: str = "2y") -> pd.DataFrame:
-    """Load stock data from Yahoo Finance."""
-    try:
-        if len(tickers) == 1:
-            # Single ticker - yfinance returns simple DataFrame
-            data = yf.download(tickers[0], period=period, progress=False)
-            # Add ticker name to columns if needed
-            if 'Adj Close' in data.columns:
-                prices = pd.DataFrame(data['Adj Close'])
-                prices.columns = tickers
-                return prices
+    """
+    Load stock data from Yahoo Finance with robust error handling.
+
+    Args:
+        tickers: List of ticker symbols
+        period: Time period ('1y', '2y', '3y', '5y', etc.)
+
+    Returns:
+        Raw DataFrame from yfinance (will be processed by get_price_column)
+
+    Raises:
+        Exception: If data fetch fails after retries
+    """
+    import time
+
+    max_retries = 3
+    retry_delay = 2  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            # Download data
+            data = yf.download(
+                tickers,
+                period=period,
+                progress=False
+            )
+
+            if data.empty:
+                raise ValueError(f"No data returned for {tickers}")
+
+            # Validate that we have at least some price columns
+            if isinstance(data.columns, pd.MultiIndex):
+                available_cols = data.columns.get_level_values(0).unique().tolist()
+            else:
+                available_cols = data.columns.tolist()
+
+            if not any(col in available_cols for col in ['Close', 'Adj Close']):
+                raise ValueError(f"No price columns in returned data. Available: {available_cols}")
+
             return data
-        else:
-            # Multiple tickers - returns MultiIndex columns
-            data = yf.download(tickers, period=period, progress=False)
-            return data
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return pd.DataFrame()
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Retry with exponential backoff
+                wait_time = retry_delay * (2 ** attempt)
+                time.sleep(wait_time)
+                continue
+            else:
+                # Final attempt failed
+                raise Exception(f"Failed to load data after {max_retries} attempts: {e}")
 
 
 @st.cache_data(ttl=3600)
@@ -121,14 +278,26 @@ def run_factor_analysis(tickers: List[str], returns: pd.DataFrame) -> pd.DataFra
 st.sidebar.title("📊 Quant Finance Dashboard")
 st.sidebar.markdown("---")
 
+# Show import error warning if modules failed to load
+if import_error:
+    st.sidebar.error("⚠️ Some modules failed to import")
+    st.error(f"**Import Error**: {import_error}")
+    st.info("Some dashboard features may not be available. Please ensure all dependencies are installed.")
+    st.code("pip install -r requirements_training.txt", language="bash")
+
 page = st.sidebar.radio(
     "Navigation",
-    ["Portfolio Builder", "Factor Analysis", "Backtest Runner",
+    ["Single Stock Analysis", "Portfolio Builder", "Factor Analysis", "Backtest Runner",
      "Performance Monitor", "Risk Analytics"]
 )
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Global Settings")
+
+# Data refresh button
+if st.sidebar.button("🔄 Refresh Data", help="Clear cache and reload fresh data"):
+    st.cache_data.clear()
+    st.rerun()
 
 # Universe selection
 universe_preset = st.sidebar.selectbox(
@@ -158,34 +327,287 @@ period = st.sidebar.selectbox(
 
 # Load data
 with st.spinner("Loading data..."):
-    data = load_stock_data(universe, period=period)
+    try:
+        data = load_stock_data(universe, period=period)
+        prices = get_price_column(data, universe, prefer_adjusted=True)
+        returns = prices.pct_change().dropna()
 
-if data.empty:
-    st.error("Failed to load data. Please check tickers and try again.")
-    st.stop()
+        st.sidebar.success(f"✓ Loaded {len(universe)} stocks")
+        st.sidebar.caption(f"Data: {prices.index[0].date()} to {prices.index[-1].date()}")
 
-# Handle both single and multi-ticker data formats
-if isinstance(data.columns, pd.MultiIndex):
-    # Multi-ticker format: extract 'Adj Close' column
-    prices = data['Adj Close']
-elif len(universe) == 1:
-    # Single ticker already processed in load function
-    prices = data
-else:
-    # Fallback: assume data is already prices
-    prices = data
+    except ValueError as e:
+        st.sidebar.error(f"❌ Data extraction error")
+        st.error(f"**Could not extract price data:** {e}")
+        st.info("💡 **Suggestions:**\n"
+                "- Check that ticker symbols are valid\n"
+                "- Try reducing the number of tickers\n"
+                "- Use the refresh button to retry")
+        st.stop()
 
-returns = prices.pct_change().dropna()
+    except Exception as e:
+        st.sidebar.error(f"❌ Data loading failed")
+        st.error(f"**Failed to load data:** {e}")
+        st.info("💡 **Suggestions:**\n"
+                "- Check your internet connection\n"
+                "- Verify ticker symbols are correct\n"
+                "- Try a different time period\n"
+                "- Use the refresh button to retry")
+        st.stop()
 
-st.sidebar.success(f"✓ Loaded {len(universe)} stocks")
-st.sidebar.caption(f"Data: {prices.index[0].date()} to {prices.index[-1].date()}")
+
+# ============================================================================
+# PAGE 0: Single Stock Analysis
+# ============================================================================
+
+if page == "Single Stock Analysis":
+    st.title("🔍 Single Stock Analysis")
+    st.markdown("Comprehensive analysis of individual stocks with buy/sell recommendation")
+
+    # Ticker selection
+    ticker_input = st.text_input(
+        "Enter Stock Ticker",
+        value="AAPL",
+        help="Enter a single stock ticker symbol (e.g., AAPL, MSFT, GOOGL)"
+    ).upper()
+
+    analyze_button = st.button("📊 Analyze Stock", type="primary")
+
+    if analyze_button and ticker_input:
+        with st.spinner(f"Analyzing {ticker_input}..."):
+            try:
+                # Load data for single ticker
+                single_data = load_stock_data([ticker_input], period=period)
+                single_prices = get_price_column(single_data, [ticker_input], prefer_adjusted=True)
+                single_returns = single_prices.pct_change().dropna()
+
+                # Calculate comprehensive metrics
+                st.success(f"✓ Loaded {len(single_prices)} days of data for {ticker_input}")
+
+                # === Technical Analysis ===
+                st.subheader("📈 Technical Analysis")
+
+                tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+
+                # Current price & change
+                current_price = single_prices[ticker_input].iloc[-1]
+                price_1d_ago = single_prices[ticker_input].iloc[-2] if len(single_prices) > 1 else current_price
+                price_change_1d = (current_price - price_1d_ago) / price_1d_ago
+
+                with tcol1:
+                    st.metric(
+                        "Current Price",
+                        f"${current_price:.2f}",
+                        delta=f"{price_change_1d:.2%}",
+                        help="Current price vs 1 day ago"
+                    )
+
+                # Volatility
+                volatility_20d = single_returns[ticker_input].tail(20).std() * np.sqrt(252)
+                with tcol2:
+                    st.metric(
+                        "Volatility (20d)",
+                        f"{volatility_20d:.1%}",
+                        help="Annualized volatility based on 20-day returns"
+                    )
+
+                # Momentum
+                momentum_20 = (single_prices[ticker_input].iloc[-1] / single_prices[ticker_input].iloc[-20] - 1) if len(single_prices) >= 20 else 0
+                with tcol3:
+                    st.metric(
+                        "20-Day Momentum",
+                        f"{momentum_20:.2%}",
+                        help="Price change over last 20 days"
+                    )
+
+                # RSI
+                delta = single_returns[ticker_input]
+                gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs))
+                current_rsi = rsi.iloc[-1] if not rsi.empty else 50
+
+                with tcol4:
+                    rsi_label = "Oversold" if current_rsi < 30 else ("Overbought" if current_rsi > 70 else "Neutral")
+                    st.metric(
+                        "RSI (14)",
+                        f"{current_rsi:.1f}",
+                        delta=rsi_label,
+                        help="Relative Strength Index: <30 oversold, >70 overbought"
+                    )
+
+                # === Factor Analysis ===
+                st.subheader("🎯 Factor Analysis (Fama-French)")
+
+                try:
+                    # Run factor regression
+                    ff_results = run_factor_analysis([ticker_input], single_returns)
+
+                    fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+
+                    with fcol1:
+                        alpha = ff_results.iloc[0]['alpha'] * 252  # Annualize
+                        alpha_pval = ff_results.iloc[0]['alpha_pvalue']
+                        is_significant = "✓ Significant" if alpha_pval < 0.05 else "Not significant"
+                        st.metric(
+                            "Alpha (Annual)",
+                            f"{alpha:.2%}",
+                            delta=is_significant,
+                            help=f"Risk-adjusted excess return (p={alpha_pval:.3f})"
+                        )
+
+                    with fcol2:
+                        beta = ff_results.iloc[0]['beta_MKT']
+                        beta_label = "High Beta" if beta > 1.2 else ("Low Beta" if beta < 0.8 else "Market Beta")
+                        st.metric(
+                            "Market Beta",
+                            f"{beta:.2f}",
+                            delta=beta_label,
+                            help="Sensitivity to market movements (1.0 = market)"
+                        )
+
+                    with fcol3:
+                        r2 = ff_results.iloc[0]['r_squared']
+                        st.metric(
+                            "R² (Fit)",
+                            f"{r2:.1%}",
+                            help="How much variance explained by factors"
+                        )
+
+                    with fcol4:
+                        sharpe = (single_returns[ticker_input].mean() * 252) / (single_returns[ticker_input].std() * np.sqrt(252))
+                        st.metric(
+                            "Sharpe Ratio",
+                            f"{sharpe:.2f}",
+                            help="Risk-adjusted return (>1 good, >2 excellent)"
+                        )
+
+                except Exception as e:
+                    st.warning(f"Factor analysis unavailable: {e}")
+
+                # === Recommendation ===
+                st.subheader("💡 Trading Recommendation")
+
+                # Simple scoring system
+                score = 0
+                reasons = []
+
+                # Technical signals
+                if current_rsi < 30:
+                    score += 2
+                    reasons.append("✓ RSI oversold (bullish)")
+                elif current_rsi > 70:
+                    score -= 2
+                    reasons.append("✗ RSI overbought (bearish)")
+
+                if momentum_20 > 0.05:
+                    score += 1
+                    reasons.append("✓ Strong positive momentum")
+                elif momentum_20 < -0.05:
+                    score -= 1
+                    reasons.append("✗ Negative momentum")
+
+                # Factor signals
+                try:
+                    if alpha > 0.02 and alpha_pval < 0.10:
+                        score += 2
+                        reasons.append("✓ Positive alpha (outperforming)")
+                    elif alpha < -0.02:
+                        score -= 1
+                        reasons.append("✗ Negative alpha")
+                except:
+                    pass
+
+                # Generate recommendation
+                if score >= 3:
+                    recommendation = "🟢 STRONG BUY"
+                    explanation = "Multiple bullish signals indicate good long opportunity"
+                    position = "LONG"
+                elif score >= 1:
+                    recommendation = "🟡 BUY"
+                    explanation = "Moderately bullish signals, consider long position"
+                    position = "LONG"
+                elif score <= -3:
+                    recommendation = "🔴 STRONG SELL / SHORT"
+                    explanation = "Multiple bearish signals indicate good short opportunity"
+                    position = "SHORT"
+                elif score <= -1:
+                    recommendation = "🟠 SELL / CONSIDER SHORT"
+                    explanation = "Moderately bearish signals, consider short position"
+                    position = "SHORT"
+                else:
+                    recommendation = "⚪ NEUTRAL / HOLD"
+                    explanation = "Mixed signals, no clear directional bias"
+                    position = "NEUTRAL"
+
+                # Display recommendation prominently
+                rec_col1, rec_col2 = st.columns([1, 2])
+
+                with rec_col1:
+                    st.markdown(f"### {recommendation}")
+                    st.markdown(f"**Position:** {position}")
+                    st.markdown(f"**Score:** {score}/5")
+
+                with rec_col2:
+                    st.info(f"**Analysis:** {explanation}")
+
+                    st.markdown("**Supporting Factors:**")
+                    for reason in reasons:
+                        st.markdown(f"- {reason}")
+
+                # === Price Chart ===
+                st.subheader("📉 Price History")
+
+                fig = go.Figure()
+
+                fig.add_trace(go.Scatter(
+                    x=single_prices.index,
+                    y=single_prices[ticker_input],
+                    mode='lines',
+                    name=ticker_input,
+                    line=dict(color='blue', width=2)
+                ))
+
+                # Add SMA
+                sma_20 = single_prices[ticker_input].rolling(20).mean()
+                sma_50 = single_prices[ticker_input].rolling(50).mean()
+
+                fig.add_trace(go.Scatter(
+                    x=single_prices.index,
+                    y=sma_20,
+                    mode='lines',
+                    name='SMA 20',
+                    line=dict(color='orange', width=1, dash='dash')
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=single_prices.index,
+                    y=sma_50,
+                    mode='lines',
+                    name='SMA 50',
+                    line=dict(color='red', width=1, dash='dash')
+                ))
+
+                fig.update_layout(
+                    title=f"{ticker_input} Price Chart",
+                    xaxis_title="Date",
+                    yaxis_title="Price ($)",
+                    hovermode='x unified',
+                    height=500
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error analyzing {ticker_input}: {e}")
+                st.exception(e)
 
 
 # ============================================================================
 # PAGE 1: Portfolio Builder
 # ============================================================================
 
-if page == "Portfolio Builder":
+elif page == "Portfolio Builder":
     st.title("🎯 Long/Short Portfolio Builder")
     st.markdown("Build market-neutral portfolios with multi-factor scoring and sector constraints")
 
@@ -241,10 +663,27 @@ if page == "Portfolio Builder":
             features = calculate_features(prices)
 
             # Get current prices and volatilities
-            current_prices = prices.iloc[-1].to_dict()
-            volatilities = returns.tail(20).std().to_dict()
+            current_prices = prices.iloc[-1]  # Keep as Series
+            volatilities = returns.tail(20).std()  # Keep as Series
 
             try:
+                # Create portfolio constraints
+                constraints = PortfolioConstraints(
+                    target_net_exposure=target_net,
+                    max_sector_exposure=max_sector,
+                    max_position_size=0.30,  # 30% max per position
+                    min_position_size=0.01   # 1% min per position
+                )
+
+                # Create factor weights
+                factor_weights = FactorWeights(
+                    momentum=momentum_weight,
+                    alpha=alpha_weight,
+                    quality=quality_weight,
+                    value=value_weight,
+                    volatility=volatility_weight
+                )
+
                 # Create portfolio
                 portfolio = create_market_neutral_portfolio(
                     universe=universe,
@@ -252,82 +691,143 @@ if page == "Portfolio Builder":
                     prices=current_prices,
                     volatilities=volatilities,
                     capital=capital,
-                    target_net_exposure=target_net,
-                    max_sector_exposure=max_sector,
-                    method='atr'
+                    factor_weights=factor_weights,
+                    constraints=constraints
                 )
 
                 # Display results
                 st.success("✓ Portfolio constructed successfully!")
 
-                # Metrics
-                mcol1, mcol2, mcol3, mcol4 = st.columns(4)
+                # Extract data from portfolio structure
+                portfolio_df = portfolio['portfolio']
+                positions = portfolio['positions']
+                exposures = portfolio['exposures']
+
+                # Calculate summary metrics
+                long_df = portfolio_df[portfolio_df['size'] > 0].copy()
+                short_df = portfolio_df[portfolio_df['size'] < 0].copy()
+
+                total_long = long_df['size'].sum() if not long_df.empty else 0
+                total_short = abs(short_df['size'].sum()) if not short_df.empty else 0
+                net_exposure = (total_long - total_short) / capital if capital > 0 else 0
+                gross_exposure = (total_long + total_short) / capital if capital > 0 else 0
+
+                # Metrics with better styling and clarity
+                st.markdown("### 📊 Portfolio Summary")
+
+                mcol1, mcol2, mcol3, mcol4, mcol5 = st.columns(5)
 
                 with mcol1:
-                    st.metric("Net Exposure", f"{portfolio['net_exposure']:.2%}")
+                    st.metric(
+                        "Net Exposure",
+                        f"{net_exposure:.1%}",
+                        delta=None,
+                        help="(Long $ - Short $) / Capital. Target: 0% for market neutral"
+                    )
 
                 with mcol2:
-                    st.metric("Gross Exposure", f"{portfolio['gross_exposure']:.2%}")
+                    st.metric(
+                        "Gross Exposure",
+                        f"{gross_exposure:.1%}",
+                        help="(Long $ + Short $) / Capital. Higher = more leverage"
+                    )
 
                 with mcol3:
-                    n_long = len(portfolio['long_positions'])
-                    n_short = len(portfolio['short_positions'])
-                    st.metric("Long/Short", f"{n_long}/{n_short}")
+                    n_long = len(long_df)
+                    n_short = len(short_df)
+                    st.metric(
+                        "Positions",
+                        f"{n_long}L / {n_short}S",
+                        help=f"{n_long} long positions, {n_short} short positions"
+                    )
 
                 with mcol4:
-                    total_value = sum(p['value'] for p in portfolio['long_positions'].values())
-                    total_value += abs(sum(p['value'] for p in portfolio['short_positions'].values()))
-                    st.metric("Total Position Value", f"${total_value:,.0f}")
+                    st.metric(
+                        "Total Deployed",
+                        f"${total_value:,.0f}",
+                        help=f"Capital used: ${total_value:,.0f} of ${capital:,.0f}"
+                    )
+
+                with mcol5:
+                    cash_remaining = capital - total_value
+                    st.metric(
+                        "Cash Remaining",
+                        f"${cash_remaining:,.0f}",
+                        help="Unallocated capital"
+                    )
+
+                # Add explanation row
+                st.markdown("---")
+                col_info1, col_info2 = st.columns(2)
+                with col_info1:
+                    st.info(f"💰 **Long Positions:** ${total_long:,.0f} ({total_long/capital*100:.1f}% of capital)")
+                with col_info2:
+                    st.info(f"📉 **Short Positions:** ${total_short:,.0f} ({total_short/capital*100:.1f}% of capital)")
 
                 # Long positions
                 st.subheader("📈 Long Positions")
+                st.caption("💡 Weight = Position size as % of total capital")
 
-                long_df = pd.DataFrame.from_dict(portfolio['long_positions'], orient='index')
-                long_df = long_df[['shares', 'value', 'weight', 'sector']].sort_values('weight', ascending=False)
-                long_df['weight'] = long_df['weight'].apply(lambda x: f"{x:.2%}")
-                long_df['value'] = long_df['value'].apply(lambda x: f"${x:,.0f}")
-
-                st.dataframe(long_df, use_container_width=True)
+                if not long_df.empty:
+                    display_long = long_df.copy()
+                    # Weight is % of total capital
+                    display_long['% of Capital'] = (display_long['size'] / capital).apply(lambda x: f"{x:.2%}")
+                    # Also show % of long book
+                    display_long['% of Long Book'] = (display_long['size'] / total_long).apply(lambda x: f"{x:.1%}") if total_long > 0 else "0%"
+                    display_long['Position Size'] = display_long['size'].apply(lambda x: f"${x:,.0f}")
+                    display_long = display_long[['ticker', 'Position Size', '% of Capital', '% of Long Book', 'sector']].sort_values('% of Capital', ascending=False)
+                    st.dataframe(display_long, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ No long positions created - portfolio may be unbalanced")
 
                 # Short positions
                 st.subheader("📉 Short Positions")
+                st.caption("💡 Weight = Position size as % of total capital")
 
-                short_df = pd.DataFrame.from_dict(portfolio['short_positions'], orient='index')
-                short_df = short_df[['shares', 'value', 'weight', 'sector']].sort_values('weight')
-                short_df['weight'] = short_df['weight'].apply(lambda x: f"{x:.2%}")
-                short_df['value'] = short_df['value'].apply(lambda x: f"${x:,.0f}")
-
-                st.dataframe(short_df, use_container_width=True)
+                if not short_df.empty:
+                    display_short = short_df.copy()
+                    # Weight is % of total capital
+                    display_short['% of Capital'] = (abs(display_short['size']) / capital).apply(lambda x: f"{x:.2%}")
+                    # Also show % of short book
+                    display_short['% of Short Book'] = (abs(display_short['size']) / total_short).apply(lambda x: f"{x:.1%}") if total_short > 0 else "0%"
+                    display_short['Position Size'] = display_short['size'].apply(lambda x: f"${x:,.0f}")
+                    display_short = display_short[['ticker', 'Position Size', '% of Capital', '% of Short Book', 'sector']].sort_values('% of Capital', ascending=False)
+                    st.dataframe(display_short, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ No short positions created - portfolio may be unbalanced")
 
                 # Sector exposures
                 st.subheader("🏢 Sector Exposures")
 
-                sector_df = pd.DataFrame.from_dict(
-                    portfolio['sector_exposures'],
-                    orient='index',
-                    columns=['Exposure']
-                )
-                sector_df = sector_df.sort_values('Exposure')
+                if exposures:
+                    sector_df = pd.DataFrame.from_dict(
+                        exposures,
+                        orient='index',
+                        columns=['Exposure']
+                    )
+                    sector_df = sector_df.sort_values('Exposure')
 
-                fig = go.Figure()
+                    fig = go.Figure()
 
-                colors = ['red' if x < 0 else 'green' for x in sector_df['Exposure']]
+                    colors = ['red' if x < 0 else 'green' for x in sector_df['Exposure']]
 
-                fig.add_trace(go.Bar(
-                    x=sector_df['Exposure'],
-                    y=sector_df.index,
-                    orientation='h',
-                    marker_color=colors
-                ))
+                    fig.add_trace(go.Bar(
+                        x=sector_df['Exposure'],
+                        y=sector_df.index,
+                        orientation='h',
+                        marker_color=colors
+                    ))
 
-                fig.update_layout(
-                    title="Sector Net Exposures",
-                    xaxis_title="Net Exposure",
-                    yaxis_title="Sector",
-                    height=400
-                )
+                    fig.update_layout(
+                        title="Sector Net Exposures",
+                        xaxis_title="Net Exposure",
+                        yaxis_title="Sector",
+                        height=400
+                    )
 
-                st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No sector exposure data available")
 
             except Exception as e:
                 st.error(f"Error building portfolio: {e}")
