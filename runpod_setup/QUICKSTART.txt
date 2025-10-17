@@ -1,0 +1,130 @@
+═══════════════════════════════════════════════════════════════════
+              RUNPOD TRAINING - QUICK REFERENCE CARD
+═══════════════════════════════════════════════════════════════════
+
+HARDWARE: 3x RTX 5090 (72GB VRAM)
+STRATEGY: Minimal Checkpoints, Maximum Performance
+COST: ~$3-5/hour (~$15-20 for full pipeline)
+
+═══════════════════════════════════════════════════════════════════
+                         QUICK START
+═══════════════════════════════════════════════════════════════════
+
+1. Launch RunPod instance (3x RTX 5090, PyTorch template, 100GB storage)
+
+2. Upload code:
+   scp -r stock_analysis runpod@<ip>:/workspace/code/
+
+3. Run pipeline:
+   ssh runpod@<ip>
+   cd /workspace/code/runpod_setup
+   bash setup_runpod.sh              # One-time setup
+   bash run_training_pipeline.sh     # Full pipeline (fetch + train)
+
+═══════════════════════════════════════════════════════════════════
+                        INDIVIDUAL STEPS
+═══════════════════════════════════════════════════════════════════
+
+FETCH DATA (10-15 min):
+  python runpod_setup/fetch_training_data_large.py
+
+TRAIN MODEL (2-4 hours):
+  python runpod_setup/train_runpod.py
+
+═══════════════════════════════════════════════════════════════════
+                          MONITORING
+═══════════════════════════════════════════════════════════════════
+
+GPU usage:                watch -n 1 nvidia-smi
+Training log:             tail -f /workspace/output/training.log
+Results:                  cat /workspace/output/training_results.json
+
+═══════════════════════════════════════════════════════════════════
+                         KEY OUTPUTS
+═══════════════════════════════════════════════════════════════════
+
+Training data:            /workspace/data/training/training_data.parquet
+Best checkpoint:          /workspace/output/checkpoints/best-*.ckpt
+Training logs:            /workspace/output/logs/
+Results summary:          /workspace/output/training_results.json
+Full log:                 /workspace/output/training.log
+
+═══════════════════════════════════════════════════════════════════
+                        DOWNLOAD RESULTS
+═══════════════════════════════════════════════════════════════════
+
+All outputs:
+  scp -r runpod@<ip>:/workspace/output ./runpod_results
+
+Just checkpoint:
+  scp runpod@<ip>:/workspace/output/checkpoints/best-*.ckpt ./model.ckpt
+
+═══════════════════════════════════════════════════════════════════
+                     CONFIGURATION HIGHLIGHTS
+═══════════════════════════════════════════════════════════════════
+
+Model:
+  • Architecture: Transformer
+  • Hidden size: 512
+  • Layers: 6
+  • Attention heads: 8
+  • Feed forward: 2048
+
+Training:
+  • Batch size: 1024 × 3 GPUs
+  • Gradient accumulation: 4x (effective batch = 4096)
+  • Precision: Mixed 16-bit
+  • Max epochs: 100
+  • Learning rate: 0.001 (cosine decay)
+
+Data:
+  • Tickers: 100+ (tech, large-cap, mid-cap, ETFs)
+  • Timeframe: 10 years
+  • Sequence length: 120 days
+  • Forecast horizon: 20 days
+
+Checkpointing (MINIMAL):
+  • Save top K: 1 (only best model)
+  • Save last: False
+  • Check frequency: Every 10 epochs
+  • Result: ~90% reduction in checkpoint writes
+
+═══════════════════════════════════════════════════════════════════
+                       TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════
+
+Out of Memory:
+  • Reduce batch_size from 1024 to 512 in train_runpod.py
+  • Or increase accumulate_grad_batches from 4 to 8
+
+Slow training:
+  • Verify mixed precision: precision='16-mixed' (not '32-true')
+  • Check GPU util: nvidia-smi (should be >90%)
+
+Data fetch fails:
+  • Some tickers may fail (normal)
+  • Training proceeds with successfully fetched data
+  • Check: grep "Failed" /workspace/data/training/fetch_metadata.json
+
+═══════════════════════════════════════════════════════════════════
+                      COST OPTIMIZATION
+═══════════════════════════════════════════════════════════════════
+
+• Use SPOT instances (50-70% cheaper, may be interrupted)
+• Stop instance IMMEDIATELY after training
+• Test with smaller model first (hidden_size=256, max_epochs=10)
+• Batch multiple experiments in one session
+
+═══════════════════════════════════════════════════════════════════
+                         NEXT STEPS
+═══════════════════════════════════════════════════════════════════
+
+1. Download checkpoint to local machine
+2. Run backtests on held-out data
+3. Integrate into dashboard
+4. Monitor prediction accuracy
+5. Retrain every 3-6 months with fresh data
+
+═══════════════════════════════════════════════════════════════════
+
+For full documentation: See runpod_setup/README.md
