@@ -194,6 +194,8 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Calculate features per ticker using groupby
     def calc_features(group):
+        group = group.copy()
+
         # Returns
         group['returns'] = group['Close'].pct_change()
         group['log_returns'] = np.log(group['Close'] / group['Close'].shift(1))
