@@ -186,47 +186,49 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     # Sort by ticker and date
     df = df.sort_values(['ticker', 'Date']).reset_index(drop=True)
 
-    # Initialize columns with NaN
-    feature_columns = ['returns', 'log_returns', 'sma_5', 'sma_10', 'sma_20', 'sma_50',
-                      'volatility_5', 'volatility_20', 'volume_sma_20', 'volume_ratio', 'rsi']
-    for col in feature_columns:
-        df[col] = np.nan
+    # Calculate features per ticker using transform
+    def calc_returns(x):
+        return x.pct_change()
 
-    # Calculate features per ticker using groupby
-    def calc_features(group):
-        group = group.copy()
+    def calc_log_returns(x):
+        return np.log(x / x.shift(1))
 
-        # Returns
-        group['returns'] = group['Close'].pct_change()
-        group['log_returns'] = np.log(group['Close'] / group['Close'].shift(1))
+    def calc_sma(x, window):
+        return x.rolling(window).mean()
 
-        # Moving averages
-        group['sma_5'] = group['Close'].rolling(5).mean()
-        group['sma_10'] = group['Close'].rolling(10).mean()
-        group['sma_20'] = group['Close'].rolling(20).mean()
-        group['sma_50'] = group['Close'].rolling(50).mean()
+    def calc_volatility(x, window):
+        returns = x.pct_change()
+        return returns.rolling(window).std()
 
-        # Volatility
-        group['volatility_5'] = group['returns'].rolling(5).std()
-        group['volatility_20'] = group['returns'].rolling(20).std()
-
-        # Volume features
-        group['volume_sma_20'] = group['Volume'].rolling(20).mean()
-        group['volume_ratio'] = group['Volume'] / group['volume_sma_20']
-
-        # RSI
-        delta = group['Close'].diff()
+    def calc_rsi(x):
+        delta = x.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
-        group['rsi'] = 100 - (100 / (1 + rs))
+        return 100 - (100 / (1 + rs))
 
-        return group
+    # Apply transformations per ticker
+    df['returns'] = df.groupby('ticker')['Close'].transform(calc_returns)
+    df['log_returns'] = df.groupby('ticker')['Close'].transform(calc_log_returns)
 
-    # Apply to each ticker group
-    df = df.groupby('ticker', group_keys=False).apply(calc_features)
+    # Moving averages
+    df['sma_5'] = df.groupby('ticker')['Close'].transform(lambda x: calc_sma(x, 5))
+    df['sma_10'] = df.groupby('ticker')['Close'].transform(lambda x: calc_sma(x, 10))
+    df['sma_20'] = df.groupby('ticker')['Close'].transform(lambda x: calc_sma(x, 20))
+    df['sma_50'] = df.groupby('ticker')['Close'].transform(lambda x: calc_sma(x, 50))
 
-    logger.info(f"Added {len(feature_columns)} technical features")
+    # Volatility
+    df['volatility_5'] = df.groupby('ticker')['Close'].transform(lambda x: calc_volatility(x, 5))
+    df['volatility_20'] = df.groupby('ticker')['Close'].transform(lambda x: calc_volatility(x, 20))
+
+    # Volume features
+    df['volume_sma_20'] = df.groupby('ticker')['Volume'].transform(lambda x: x.rolling(20).mean())
+    df['volume_ratio'] = df['Volume'] / df['volume_sma_20']
+
+    # RSI
+    df['rsi'] = df.groupby('ticker')['Close'].transform(calc_rsi)
+
+    logger.info(f"Added 11 technical features")
 
     return df
 
