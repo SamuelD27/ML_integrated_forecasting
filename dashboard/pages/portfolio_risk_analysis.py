@@ -159,7 +159,15 @@ def show():
                 tickers = portfolio_data['Ticker'].tolist()
                 weights = portfolio_data['Weight'].values
 
-                data = yf.download(tickers, period=lookback_period, progress=False)['Adj Close']
+                raw_data = yf.download(tickers, period=lookback_period, progress=False)
+
+                # Handle Adj Close vs Close
+                if 'Adj Close' in raw_data.columns:
+                    data = raw_data['Adj Close']
+                elif 'Close' in raw_data.columns:
+                    data = raw_data['Close']
+                else:
+                    data = raw_data
 
                 if isinstance(data, pd.Series):
                     data = data.to_frame(tickers[0])
