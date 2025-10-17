@@ -100,11 +100,29 @@ def fetch_ticker_data(ticker: str, start_date: str, end_date: str, interval: str
             logger.warning(f"No data for {ticker}")
             return None
 
+        # Reset index first to have date as column
+        data = data.reset_index()
+
+        # Handle MultiIndex columns (when multiple tickers downloaded)
+        if isinstance(data.columns, pd.MultiIndex):
+            # Flatten multi-index by taking first level
+            data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
+
+        # Ensure standard column names (remove any ticker suffixes)
+        # Sometimes yfinance adds ticker suffix like 'Close_AAPL'
+        column_mapping = {}
+        for col in data.columns:
+            col_str = str(col)
+            # Check if column ends with ticker suffix
+            if col_str.endswith(f'_{ticker}'):
+                base_col = col_str.replace(f'_{ticker}', '')
+                column_mapping[col] = base_col
+
+        if column_mapping:
+            data = data.rename(columns=column_mapping)
+
         # Add ticker column
         data['ticker'] = ticker
-
-        # Reset index to have date as column
-        data = data.reset_index()
 
         return data
 
@@ -161,8 +179,9 @@ def fetch_all_tickers(
     if not all_data:
         raise ValueError("No data fetched for any ticker!")
 
-    # Combine all data
-    combined = pd.concat(all_data, ignore_index=True)
+    # Combine all data - use axis=0 to stack vertically (rows), not horizontally (columns)
+    # Also use sort=False to avoid column reordering issues
+    combined = pd.concat(all_data, axis=0, ignore_index=True, sort=False)
 
     # Flatten column names if MultiIndex
     if isinstance(combined.columns, pd.MultiIndex):
@@ -171,6 +190,13 @@ def fetch_all_tickers(
 
     # Ensure we have simple column names
     combined.columns = [str(col) for col in combined.columns]
+
+    # Check if we have the expected columns
+    expected_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'ticker']
+    missing_cols = [col for col in expected_cols if col not in combined.columns]
+    if missing_cols:
+        logger.warning(f"Missing expected columns: {missing_cols}")
+        logger.warning(f"Actual columns: {combined.columns.tolist()[:10]}...")  # Show first 10
 
     logger.info(f"Total rows fetched: {len(combined):,}")
     logger.info(f"Tickers with data: {combined['ticker'].nunique()}")
