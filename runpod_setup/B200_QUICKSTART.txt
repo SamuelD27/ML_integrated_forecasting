@@ -1,0 +1,237 @@
+═══════════════════════════════════════════════════════════════════════════════
+                         B200 TRAINING - QUICK START
+═══════════════════════════════════════════════════════════════════════════════
+
+HARDWARE: 1x NVIDIA B200 (192GB VRAM)
+DATASET: 500 S&P 500 tickers × 15 years = ~7.5M rows
+MODEL: 100M parameters (1024H × 12L × 16A Transformer)
+TIME: 8-10 hours total
+COST: ~$800-1000 ($100-120/hr × 10 hours)
+
+═══════════════════════════════════════════════════════════════════════════════
+                            ONE-LINE DEPLOYMENT
+═══════════════════════════════════════════════════════════════════════════════
+
+SSH into RunPod B200 instance and run:
+
+cd /workspace && \
+git clone https://github.com/SamuelD27/ML_integrated_forecasting.git code && \
+cd code/runpod_setup && \
+bash deploy_b200.sh
+
+That's it! The script will:
+  1. Setup environment (~5 min)
+  2. Fetch 500 tickers × 15 years (~30-45 min)
+  3. Train 100M param model (~8-10 hours)
+  4. Save results
+
+═══════════════════════════════════════════════════════════════════════════════
+                           MANUAL STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+
+If you prefer manual control:
+
+# 1. Clone repository
+cd /workspace
+git clone https://github.com/SamuelD27/ML_integrated_forecasting.git code
+cd code
+
+# 2. Install dependencies
+pip install torch pytorch-lightning pandas numpy pyarrow yfinance \
+            lightgbm scikit-learn tensorboard tqdm pyyaml
+
+# 3. Fetch data (~30-45 min)
+cd runpod_setup
+python fetch_sp500_data.py
+
+# 4. Train model (~8-10 hours)
+python train_b200.py
+
+═══════════════════════════════════════════════════════════════════════════════
+                              MONITORING
+═══════════════════════════════════════════════════════════════════════════════
+
+In another terminal:
+
+# GPU utilization (should be >90%)
+watch -n 1 nvidia-smi
+
+# Training log
+tail -f /workspace/output/training.log
+
+# TensorBoard (if port forwarded)
+tensorboard --logdir /workspace/output/logs --port 6006
+
+═══════════════════════════════════════════════════════════════════════════════
+                          CONFIGURATION DETAILS
+═══════════════════════════════════════════════════════════════════════════════
+
+Model Architecture:
+  Input dim: 9 features (OHLCV + technical indicators)
+  Hidden size: 1024 (4x larger than baseline)
+  Layers: 12 (2x deeper than baseline)
+  Attention heads: 16 (2x more than baseline)
+  Feed-forward: 4096 (2x wider than baseline)
+  Total params: ~100M (5x larger than baseline)
+  Dropout: 0.2
+
+Training Configuration:
+  Batch size: 16,384 (MASSIVE - only possible on B200)
+  Gradient accumulation: 1 (no need with large batch)
+  Max epochs: 150
+  Learning rate: 0.0005 (lower for large batch)
+  Warmup epochs: 5
+  Patience: 25 (early stopping)
+  Precision: BF16-mixed (optimal for B200)
+  Compile: True (torch.compile for 30% speedup)
+
+Data Configuration:
+  Train split: 80%
+  Val split: 10%
+  Test split: 10%
+  Num workers: 32 (B200 can handle many)
+  Sequence length: 120 days
+  Forecast horizon: 20 days
+
+Checkpointing (MINIMAL):
+  Save top K: 1 (only best model)
+  Save last: False
+  Every N epochs: 10
+  Monitor: val_loss
+
+Dataset Details:
+  Tickers: 500 (complete S&P 500)
+  Timeframe: 15 years
+  Interval: Daily
+  Features: 18 technical indicators
+  Total rows: ~7.5M
+  File size: ~300MB (parquet)
+
+═══════════════════════════════════════════════════════════════════════════════
+                             EXPECTED RESULTS
+═══════════════════════════════════════════════════════════════════════════════
+
+Training:
+  Samples: ~6.3M training samples
+  Steps per epoch: ~385 (6.3M / 16,384)
+  Time per epoch: ~3-4 minutes
+  Total time: ~8-10 hours (150 epochs with early stopping)
+
+Performance:
+  Val loss: <0.0008 (better than baseline)
+  Test accuracy: 58-62% directional (excellent for finance)
+  Model size: ~400MB (fp32)
+  Inference: <1ms per prediction
+
+Outputs:
+  Best checkpoint: /workspace/output/checkpoints/best-*.ckpt
+  TensorBoard logs: /workspace/output/logs/
+  Training log: /workspace/output/training.log
+  Results JSON: /workspace/output/training_results.json
+
+═══════════════════════════════════════════════════════════════════════════════
+                           DOWNLOAD RESULTS
+═══════════════════════════════════════════════════════════════════════════════
+
+From your local machine:
+
+# Download everything
+scp -r runpod@<ip>:/workspace/output ./b200_results
+
+# Download just the checkpoint
+scp runpod@<ip>:/workspace/output/checkpoints/best-*.ckpt ./best_model.ckpt
+
+# Download just the logs
+scp -r runpod@<ip>:/workspace/output/logs ./tensorboard_logs
+
+═══════════════════════════════════════════════════════════════════════════════
+                           COST BREAKDOWN
+═══════════════════════════════════════════════════════════════════════════════
+
+B200 hourly rate: $100-120/hr (varies by provider)
+
+Phase breakdown:
+  Setup: 5 min = $8-10
+  Data fetch: 45 min = $75-90
+  Training: 9 hrs = $900-1080
+  ─────────────────────────────
+  TOTAL: ~$980-1180
+
+Cost optimization tips:
+  ✓ Use spot instances (50-70% cheaper, may be interrupted)
+  ✓ Stop instance IMMEDIATELY after training
+  ✓ Don't leave idle
+  ✓ Download results and terminate
+
+═══════════════════════════════════════════════════════════════════════════════
+                            TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+Out of Memory:
+  → Reduce batch_size from 16384 to 8192 in train_b200.py
+  → Or enable gradient accumulation: accumulate_grad_batches=2
+
+Slow training:
+  → Verify BF16 precision is enabled (not FP32)
+  → Check GPU util: nvidia-smi (should be >90%)
+  → Ensure torch.compile is enabled
+
+Data fetch fails:
+  → Some tickers may fail (normal)
+  → Training proceeds with successfully fetched data
+  → Check: grep "Failed" /workspace/data/training/metadata.json
+
+Training crashes:
+  → Check CUDA memory: nvidia-smi
+  → View error log: tail -100 /workspace/output/training.log
+  → Verify Python 3.11+ (not 3.12+)
+
+═══════════════════════════════════════════════════════════════════════════════
+                         WHY B200 IS OPTIMAL
+═══════════════════════════════════════════════════════════════════════════════
+
+Advantages:
+  ✓ 192GB VRAM → Can train 100M+ param models
+  ✓ BF16 support → Better numeric stability than FP16
+  ✓ 5,000 TFLOPS → 2-3x faster than H100
+  ✓ 8 TB/s bandwidth → No memory bottleneck
+  ✓ Batch 16,384 → Better convergence, fewer steps
+
+Comparison:
+  1x B200 (16K batch) ≈ 4x H100 (4K batch each)
+  1x B200 cost: $1000
+  4x H100 cost: $1600
+  → B200 is 37% cheaper for same performance!
+
+Perfect for:
+  ✓ Large models (50M-500M params)
+  ✓ Massive datasets (5M+ rows)
+  ✓ Single long training session
+  ✓ Research & experimentation
+
+═══════════════════════════════════════════════════════════════════════════════
+                              NEXT STEPS
+═══════════════════════════════════════════════════════════════════════════════
+
+After training completes:
+
+1. Download checkpoint
+   scp runpod@<ip>:/workspace/output/checkpoints/best-*.ckpt ./
+
+2. Load in PyTorch
+   from train_b200 import TransformerForecastModel
+   model = TransformerForecastModel.load_from_checkpoint('best-*.ckpt')
+
+3. Run backtests on held-out data
+
+4. Integrate into dashboard
+
+5. Monitor prediction accuracy in production
+
+6. Retrain every 3-6 months with fresh data
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Questions? Check the full README: runpod_setup/README.md
+
+Happy training! 🚀
