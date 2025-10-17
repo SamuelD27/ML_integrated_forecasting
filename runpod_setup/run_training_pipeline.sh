@@ -18,11 +18,14 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-CODE_DIR="/workspace/code"
+# Configuration - Auto-detect code directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DATA_DIR="/workspace/data"
 OUTPUT_DIR="/workspace/output"
 TRAINING_DATA="${DATA_DIR}/training/training_data.parquet"
+
+echo "Code directory: ${CODE_DIR}"
 
 echo ""
 echo "=========================================="

@@ -58,11 +58,12 @@ echo ""
 
 # Install remaining requirements
 echo "📦 Installing Python dependencies..."
-if [ -f "/workspace/code/runpod_setup/requirements_runpod.txt" ]; then
-    pip install -r /workspace/code/runpod_setup/requirements_runpod.txt --quiet
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/requirements_runpod.txt" ]; then
+    pip install -r "${SCRIPT_DIR}/requirements_runpod.txt" --quiet
     echo "✅ All dependencies installed"
 else
-    echo "⚠️  WARNING: requirements_runpod.txt not found at /workspace/code/runpod_setup/"
+    echo "⚠️  WARNING: requirements_runpod.txt not found"
     echo "    Installing core dependencies manually..."
     pip install pytorch-lightning pandas numpy pyarrow yfinance lightgbm scikit-learn tensorboard tqdm pyyaml --quiet
     echo "✅ Core dependencies installed"
@@ -123,6 +124,6 @@ echo "  • Output: /workspace/output/"
 echo "  • Code: /workspace/code/"
 echo ""
 echo "🚀 Next Steps:"
-echo "  1. Copy your code to /workspace/code/"
+echo "  1. Navigate to runpod_setup: cd /path/to/your/repo/runpod_setup"
 echo "  2. Run: bash run_training_pipeline.sh"
 echo ""
