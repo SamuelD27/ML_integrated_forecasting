@@ -6,6 +6,69 @@ import pandas as pd
 from dataclasses import dataclass
 
 
+class DataProviderError(Exception):
+    """Exception raised for data provider errors."""
+    pass
+
+
+class DataProviderInterface(ABC):
+    """
+    Abstract base class for market data providers.
+
+    Provides a common interface for fetching historical price data
+    from various sources (Yahoo, Alpaca, etc.).
+    """
+
+    def __init__(self, name: str, timeout: int = 30, retry_attempts: int = 3):
+        """
+        Initialize data provider.
+
+        Args:
+            name: Provider name
+            timeout: Request timeout in seconds
+            retry_attempts: Number of retry attempts on failure
+        """
+        self.name = name
+        self.timeout = timeout
+        self.retry_attempts = retry_attempts
+
+    @abstractmethod
+    def get_historical_data(
+        self,
+        ticker: str,
+        start_date: str,
+        end_date: str,
+        **kwargs
+    ) -> pd.DataFrame:
+        """
+        Fetch historical OHLCV data.
+
+        Args:
+            ticker: Stock ticker symbol
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            **kwargs: Additional provider-specific arguments
+
+        Returns:
+            DataFrame with columns: Open, High, Low, Close, Volume, Adj Close
+            Index: DatetimeIndex
+
+        Raises:
+            DataProviderError: If data fetch fails
+        """
+        pass
+
+    @abstractmethod
+    def test_connection(self) -> bool:
+        """
+        Test provider connection.
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        pass
+
+
 class ProviderType(Enum):
     """Supported data provider types."""
     YAHOO_FINANCE = "yahoo"

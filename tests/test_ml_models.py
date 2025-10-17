@@ -23,7 +23,7 @@ from ml_models.transformer_module import TransformerEncoder, PositionalEncoding
 from ml_models.fusion_layer import AttentionFusion
 from ml_models.hybrid_model import HybridTradingModel
 from ml_models.rl_agent import TradingEnvironment, TradingConfig, PPOAgent
-from training.utils import WalkForwardSplitter, TradingDataset, compute_trading_metrics
+from training.training_utils import WalkForwardSplitter, TradingDataset, compute_trading_metrics
 from backtesting.backtest_engine import BacktestEngine, BacktestConfig
 
 

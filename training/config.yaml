@@ -7,6 +7,33 @@ data:
   base_name: "training_data"
   features_dir: "data/features"
 
+  # Data providers configuration
+  providers:
+    # Primary daily data
+    yahoo:
+      enabled: true
+      priority: 1
+
+    # Intraday data (requires API key)
+    alpaca:
+      enabled: false  # Set to true if ALPACA_API_KEY is set
+      priority: 2
+      use_intraday: true  # Enable intraday feature calculation
+      intraday_timeframe: "5min"  # 1min, 5min, 15min, 1hour
+
+    # Macroeconomic data (requires API key)
+    fred:
+      enabled: false  # Set to true if FRED_API_KEY is set
+      priority: 3
+      indicators:
+        - GDP
+        - UNRATE
+        - CPIAUCSL
+        - FEDFUNDS
+        - T10Y2Y
+        - DGS10
+        - VIXCLS
+
   # Time series parameters
   sequence_length: 60  # Number of time steps to look back
   forecast_horizon: 1  # Days ahead to predict
@@ -22,6 +49,8 @@ data:
     train_window: 252  # 1 year of trading days
     val_window: 63     # 3 months
     step_size: 21      # 1 month
+    purge_pct: 0.02    # Purge 2% of samples at train/test boundary
+    embargo_pct: 0.01  # Add 1% embargo after test start
 
   # Feature selection
   feature_groups:
@@ -32,6 +61,8 @@ data:
     volatility: true
     sentiment: true
     cross_sectional: false  # Set to true if market data available
+    intraday: false  # Set to true if Alpaca enabled
+    macro: false  # Set to true if FRED enabled
 
 # Model Architecture
 model:

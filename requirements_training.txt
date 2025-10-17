@@ -96,3 +96,34 @@ ipykernel==6.27.1
 # Note: For GPU training on RunPod:
 # Use the PyTorch GPU image as base
 # pip install torch --index-url https://download.pytorch.org/whl/cu118
+# ============================================================================
+# Enhanced Data Providers & Quant Finance Libraries
+# ============================================================================
+
+# Alpaca Markets API - Intraday data, real-time quotes
+alpaca-py>=0.17.0
+
+# Federal Reserve Economic Data API - Macro indicators
+fredapi>=0.5.1
+
+# Fama-French factor data and other research datasets
+pandas-datareader>=0.10.0
+
+# Advanced backtesting framework (10-100x faster than event-driven)
+vectorbt>=0.26.0
+
+# Property-based testing for financial models
+hypothesis>=6.92.0
+
+# Hierarchical Risk Parity optimization
+riskfolio-lib>=5.0.0
+
+# Temporal Fusion Transformer for time series forecasting
+pytorch-forecasting>=1.0.0
+
+# Streamlit for interactive dashboards
+streamlit>=1.29.0
+plotly>=5.18.0
+
+# SHAP for model interpretability
+shap>=0.43.0
