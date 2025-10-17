@@ -48,8 +48,8 @@ CONFIG = {
 
     # Training (B200 optimized)
     'training': {
-        'batch_size': 16384,  # MASSIVE batch (192GB allows this)
-        'accumulate_grad_batches': 1,  # No accumulation needed
+        'batch_size': 4096,  # Large batch (reduced from 16384 due to model size)
+        'accumulate_grad_batches': 4,  # Effective batch = 16384
         'max_epochs': 150,
         'learning_rate': 0.0005,  # Lower for large batch
         'weight_decay': 0.01,
@@ -79,7 +79,7 @@ CONFIG = {
     # Optimization
     'optimization': {
         'precision': 'bf16-mixed',  # BF16 better on B200
-        'compile': True,  # torch.compile for 30% speedup
+        'compile': False,  # Disabled - causes OOM with large model
         'gradient_clip_val': 1.0,
         'detect_anomaly': False,
     },
