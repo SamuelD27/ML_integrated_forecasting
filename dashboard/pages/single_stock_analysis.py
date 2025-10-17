@@ -25,6 +25,47 @@ sys.path.insert(0, str(project_root))
 
 from portfolio.security_valuation import DCFInputs, DCFValuation
 from portfolio.factor_models import FamaFrenchFactorModel
+from ml_models.practical_ensemble import StockEnsemble, generate_trading_signal
+
+
+@st.cache_data(ttl=3600)
+def get_ml_forecast(ticker: str, hist: pd.DataFrame) -> dict:
+    """
+    Generate ML forecast for stock using ensemble.
+
+    Args:
+        ticker: Stock ticker
+        hist: Historical price data
+
+    Returns:
+        Dictionary with forecast results or error
+    """
+    try:
+        ensemble = StockEnsemble()
+
+        # Train on historical data
+        prices = hist['Close']
+        if len(prices) < 100:
+            return {
+                'success': False,
+                'error': 'Insufficient data (need at least 100 days)'
+            }
+
+        train_results = ensemble.fit(prices, verbose=False)
+
+        # Generate forecast
+        forecast = ensemble.predict(prices)
+
+        return {
+            'success': True,
+            'forecast': forecast,
+            'train_results': train_results
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 
 def calculate_risk_metrics(returns: pd.Series, risk_free_rate: float = 0.05) -> dict:
@@ -156,6 +197,107 @@ def show():
                     st.info("💡 DCF valuation not available (negative or missing free cash flow)")
                     intrinsic = current_price
                     upside = 0
+
+                # === 1.5 ML FORECAST ===
+                st.header("🤖 ML Ensemble Forecast (20-Day Ahead)")
+
+                with st.spinner("Training ML models..."):
+                    ml_result = get_ml_forecast(ticker, hist)
+
+                ml_signal = 0  # Default neutral
+
+                if ml_result['success']:
+                    forecast = ml_result['forecast']
+                    train_results = ml_result['train_results']
+
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric(
+                            "Current Price",
+                            f"${forecast['current_price']:.2f}",
+                            help="Latest closing price"
+                        )
+
+                    with col2:
+                        ret_pct = forecast['forecast_return'] * 100
+                        st.metric(
+                            "Forecast Price",
+                            f"${forecast['forecast_price']:.2f}",
+                            f"{ret_pct:+.1f}%",
+                            help="ML ensemble prediction for 20 days ahead"
+                        )
+
+                    with col3:
+                        conf_pct = forecast['confidence'] * 100
+                        st.metric(
+                            "Model Confidence",
+                            f"{conf_pct:.0f}%",
+                            help="Higher = models agree, lower = models disagree"
+                        )
+
+                    with col4:
+                        range_str = f"${forecast['lower_bound']:.0f}-${forecast['upper_bound']:.0f}"
+                        st.metric(
+                            "95% CI Range",
+                            range_str,
+                            help="95% probability price falls in this range"
+                        )
+
+                    # Generate ML trading signal
+                    signal_text = generate_trading_signal(forecast)
+
+                    # ML signal for final recommendation
+                    ml_signal = np.clip(forecast['forecast_return'] / 0.1, -1, 1)  # ±10% = max signal
+
+                    # Display signal with color
+                    if "STRONG BUY" in signal_text:
+                        st.success(f"### 🟢 ML Signal: {signal_text}")
+                    elif "BUY" in signal_text:
+                        st.success(f"### 🟢 ML Signal: {signal_text}")
+                    elif "STRONG SELL" in signal_text:
+                        st.error(f"### 🔴 ML Signal: {signal_text}")
+                    elif "SELL" in signal_text:
+                        st.error(f"### 🔴 ML Signal: {signal_text}")
+                    else:
+                        st.info(f"### ⚪ ML Signal: {signal_text}")
+
+                    # Model breakdown
+                    with st.expander("📊 Model Breakdown & Performance"):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**Individual Model Predictions:**")
+                            model_df = pd.DataFrame({
+                                'Model': list(forecast['model_predictions'].keys()),
+                                'Predicted Return': [f"{v*100:+.2f}%" for v in forecast['model_predictions'].values()],
+                                'Weight': [f"{train_results['weights'][k]:.1%}" for k in forecast['model_predictions'].keys()]
+                            })
+                            st.dataframe(model_df, use_container_width=True, hide_index=True)
+
+                        with col2:
+                            st.markdown("**Validation Performance:**")
+                            perf_df = pd.DataFrame({
+                                'Model': ['LightGBM', 'Ridge', 'Momentum'],
+                                'RMSE': [
+                                    f"{train_results['lgb_rmse']:.4f}",
+                                    f"{train_results['ridge_rmse']:.4f}",
+                                    f"{train_results['momentum_rmse']:.4f}"
+                                ],
+                                'Dir Accuracy': [
+                                    f"{train_results['lgb_dir_acc']:.1%}",
+                                    f"{train_results['ridge_dir_acc']:.1%}",
+                                    f"{train_results['momentum_dir_acc']:.1%}"
+                                ]
+                            })
+                            st.dataframe(perf_df, use_container_width=True, hide_index=True)
+
+                        st.caption(f"📈 Trained on {train_results['n_train']} samples, validated on {train_results['n_val']} samples")
+                        st.caption("💡 Directional Accuracy: % of times model predicted correct direction (50% = random, >55% = good)")
+
+                else:
+                    st.warning(f"⚠️ ML forecast unavailable: {ml_result.get('error', 'Unknown error')}")
+                    st.info("Using traditional valuation and technical analysis only")
 
                 # === 2. TECHNICAL SIGNALS ===
                 st.header("2️⃣ Technical Analysis")

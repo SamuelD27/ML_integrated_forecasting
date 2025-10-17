@@ -40,36 +40,128 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Professional Institutional CSS Theme
 st.markdown("""
 <style>
-    .main {
-        padding: 0rem 1rem;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Roboto+Mono:wght@400;600&display=swap');
+
+    /* Dark Professional Theme */
+    .stApp {
+        background: linear-gradient(135deg, #0a1929 0%, #1a2332 100%);
+        font-family: 'Inter', sans-serif;
     }
 
-    /* Fix metric contrast */
+    .main {
+        padding: 1rem 2rem;
+        max-width: 1600px;
+    }
+
+    /* Headers */
+    h1, h2, h3 {
+        font-family: 'Inter', sans-serif !important;
+        color: #f8f9fa !important;
+        font-weight: 600 !important;
+    }
+
+    h1 {
+        font-size: 2.5rem !important;
+        background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    h2 {
+        border-bottom: 2px solid rgba(59,130,246,0.3);
+        padding-bottom: 0.5rem;
+    }
+
+    /* Metrics Cards - Professional Design */
     .stMetric {
-        background-color: #ffffff !important;
-        padding: 15px !important;
-        border-radius: 8px !important;
-        border: 2px solid #e0e0e0 !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+        background: linear-gradient(135deg, rgba(15,23,42,0.8) 0%, rgba(30,41,59,0.8) 100%) !important;
+        padding: 1.5rem !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(59,130,246,0.2) !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3), 0 0 20px rgba(59,130,246,0.1) !important;
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+    }
+
+    .stMetric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 12px rgba(0,0,0,0.4), 0 0 30px rgba(59,130,246,0.2) !important;
+        border-color: rgba(59,130,246,0.4) !important;
     }
 
     .stMetric label {
-        color: #1f1f1f !important;
-        font-weight: 600 !important;
-        font-size: 14px !important;
+        color: #94a3b8 !important;
+        font-weight: 500 !important;
+        font-size: 0.875rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
     .stMetric [data-testid="stMetricValue"] {
-        color: #000000 !important;
-        font-size: 28px !important;
+        color: #f8f9fa !important;
+        font-size: 2rem !important;
         font-weight: 700 !important;
+        font-family: 'Roboto Mono', monospace !important;
     }
 
+    /* Buttons */
+    .stButton > button {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white !important;
+        border: none;
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59,130,246,0.4);
+    }
+
+    /* Tables */
+    .dataframe {
+        font-family: 'Roboto Mono', monospace !important;
+        background: rgba(15,23,42,0.6);
+        border-radius: 8px;
+    }
+
+    .dataframe thead tr th {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+        color: #f8f9fa !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        border-bottom: 2px solid rgba(59,130,246,0.3) !important;
+    }
+
+    .dataframe tbody tr:hover {
+        background: rgba(59,130,246,0.05) !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        border-right: 1px solid rgba(59,130,246,0.2);
+    }
+
+    /* Charts */
+    .js-plotly-plot {
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
     .reportview-container .main .block-container {
-        max-width: 1400px;
+        max-width: 1600px;
     }
 </style>
 """, unsafe_allow_html=True)
