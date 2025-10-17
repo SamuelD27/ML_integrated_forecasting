@@ -164,6 +164,14 @@ def fetch_all_tickers(
     # Combine all data
     combined = pd.concat(all_data, ignore_index=True)
 
+    # Flatten column names if MultiIndex
+    if isinstance(combined.columns, pd.MultiIndex):
+        combined.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col
+                           for col in combined.columns]
+
+    # Ensure we have simple column names
+    combined.columns = [str(col) for col in combined.columns]
+
     logger.info(f"Total rows fetched: {len(combined):,}")
     logger.info(f"Tickers with data: {combined['ticker'].nunique()}")
     logger.info(f"Date range: {combined['Date'].min()} to {combined['Date'].max()}")
@@ -182,6 +190,8 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with added features
     """
     logger.info("Adding technical features...")
+    logger.info(f"Input columns: {df.columns.tolist()}")
+    logger.info(f"Column types: {type(df.columns)}")
 
     # Sort by ticker and date
     df = df.sort_values(['ticker', 'Date']).reset_index(drop=True)
