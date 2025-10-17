@@ -141,6 +141,11 @@ def fetch_ticker_data(ticker: str, start_date: str, end_date: str, interval: str
         if column_mapping:
             data = data.rename(columns=column_mapping)
 
+        # Remove any duplicate columns before checking
+        if len(data.columns) != len(set(data.columns)):
+            # Has duplicates - keep only first occurrence
+            data = data.loc[:, ~data.columns.duplicated()]
+
         # Ensure we have required columns
         required = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
         missing = [c for c in required if c not in data.columns]
@@ -148,7 +153,7 @@ def fetch_ticker_data(ticker: str, start_date: str, end_date: str, interval: str
             logger.error(f"Missing columns for {ticker}: {missing}. Have: {data.columns.tolist()}")
             return None
 
-        # Select only the required columns
+        # Select only the required columns (this ensures no extra columns)
         data = data[required].copy()
 
         # Add ticker column
@@ -209,9 +214,30 @@ def fetch_all_tickers(
     if not all_data:
         raise ValueError("No data fetched for any ticker!")
 
+    # Debug: Check first few DataFrames for consistency
+    logger.info(f"Successfully fetched {len(all_data)} tickers")
+    if len(all_data) > 0:
+        sample_cols = all_data[0].columns.tolist()
+        logger.info(f"Sample columns from first ticker: {sample_cols}")
+
+        # Verify all have same columns
+        for i, df in enumerate(all_data[:3]):  # Check first 3
+            if df.columns.tolist() != sample_cols:
+                logger.warning(f"DataFrame {i} has different columns: {df.columns.tolist()}")
+
     # Combine all data - use axis=0 to stack vertically (rows), not horizontally (columns)
-    # Also use sort=False to avoid column reordering issues
-    combined = pd.concat(all_data, axis=0, ignore_index=True, sort=False)
+    try:
+        combined = pd.concat(all_data, axis=0, ignore_index=True, sort=False)
+    except Exception as e:
+        logger.error(f"Failed to concat data: {e}")
+        # Try alternative: concat with inner join to keep only common columns
+        logger.info("Attempting concat with join='inner'...")
+        combined = pd.concat(all_data, axis=0, ignore_index=True, join='inner')
+
+    # Remove duplicate columns if any
+    if len(combined.columns) != len(set(combined.columns)):
+        logger.warning(f"Found duplicate columns: {combined.columns.tolist()}")
+        combined = combined.loc[:, ~combined.columns.duplicated()]
 
     # Flatten column names if MultiIndex
     if isinstance(combined.columns, pd.MultiIndex):
@@ -226,7 +252,7 @@ def fetch_all_tickers(
     missing_cols = [col for col in expected_cols if col not in combined.columns]
     if missing_cols:
         logger.warning(f"Missing expected columns: {missing_cols}")
-        logger.warning(f"Actual columns: {combined.columns.tolist()[:10]}...")  # Show first 10
+        logger.warning(f"Actual columns: {combined.columns.tolist()}")
 
     logger.info(f"Total rows fetched: {len(combined):,}")
     logger.info(f"Tickers with data: {combined['ticker'].nunique()}")
