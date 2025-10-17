@@ -80,14 +80,9 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 echo "✅ PyTorch installed"
 echo ""
 
-# Install dependencies
+# Install dependencies (install without requirements file first)
 echo "📦 Installing dependencies..."
-cd ${CODE_DIR}
-if [ -f "runpod_setup/requirements_runpod.txt" ]; then
-    pip install -r runpod_setup/requirements_runpod.txt --quiet
-else
-    pip install pytorch-lightning pandas numpy pyarrow yfinance lightgbm scikit-learn tensorboard tqdm pyyaml --quiet
-fi
+pip install pytorch-lightning pandas numpy pyarrow yfinance lightgbm scikit-learn tensorboard tqdm pyyaml --quiet
 echo "✅ Dependencies installed"
 echo ""
 
