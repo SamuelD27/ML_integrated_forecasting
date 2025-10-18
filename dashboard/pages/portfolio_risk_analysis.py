@@ -27,6 +27,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy import stats
+from dashboard.utils.theme import apply_vscode_theme
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ def calculate_cvar(returns: pd.Series, confidence_level: float = 0.95) -> float:
 
 def show():
     """Main function for portfolio risk analysis page."""
-    st.title("⚠️ Portfolio Risk Analysis")
+    apply_vscode_theme()
+
+    st.title("Warning: Portfolio Risk Analysis")
     st.markdown("""
     Comprehensive risk assessment of your portfolio.
     Analyze VaR, CVaR, risk contribution, and stress scenarios.
@@ -132,11 +135,11 @@ def show():
                 # Validate weights
                 total_weight = portfolio_data['Weight'].sum()
                 if abs(total_weight - 1.0) > 0.01:
-                    st.error(f"❌ Weights must sum to 100% (current: {total_weight*100:.1f}%)")
+                    st.error(f"Error: Weights must sum to 100% (current: {total_weight*100:.1f}%)")
                     return
 
                 # 1. Fetch historical data
-                st.subheader("1️⃣ Portfolio Holdings")
+                st.subheader("1. Portfolio Holdings")
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -155,7 +158,7 @@ def show():
                     st.plotly_chart(fig_pie, use_container_width=True)
 
                 # Download price data
-                st.subheader("2️⃣ Downloading Historical Data")
+                st.subheader("2. Downloading Historical Data")
                 tickers = portfolio_data['Ticker'].tolist()
                 weights = portfolio_data['Weight'].values
 
@@ -173,13 +176,13 @@ def show():
                     data = data.to_frame(tickers[0])
 
                 returns = data.pct_change().dropna()
-                st.success(f"✅ Downloaded {len(returns)} days of data")
+                st.success(f"Downloaded {len(returns)} days of data")
 
                 # Calculate portfolio returns
                 portfolio_returns = (returns * weights).sum(axis=1)
 
                 # 2. Basic risk metrics
-                st.subheader("3️⃣ Risk Metrics")
+                st.subheader("3. Risk Metrics")
 
                 risk_metrics = calculate_risk_metrics(portfolio_returns)
 
@@ -195,7 +198,7 @@ def show():
                     st.metric("Max Drawdown", f"{risk_metrics.get('max_drawdown', 0):.2%}")
 
                 # 3. VaR and CVaR
-                st.subheader("4️⃣ Value at Risk (VaR) Analysis")
+                st.subheader("4. Value at Risk (VaR) Analysis")
 
                 var_1d = calculate_var(portfolio_returns, confidence_level=confidence_level)
                 cvar_1d = calculate_cvar(portfolio_returns, confidence_level=confidence_level)
@@ -241,7 +244,7 @@ def show():
                 """)
 
                 # 4. Risk contribution by asset
-                st.subheader("5️⃣ Risk Contribution by Asset")
+                st.subheader("5. Risk Contribution by Asset")
 
                 # Calculate covariance matrix
                 cov_matrix = returns.cov() * 252  # Annualized
@@ -290,7 +293,7 @@ def show():
                     st.plotly_chart(fig_risk, use_container_width=True)
 
                 # 5. Drawdown analysis
-                st.subheader("6️⃣ Drawdown Analysis")
+                st.subheader("6. Drawdown Analysis")
 
                 # Calculate cumulative returns
                 cumulative_returns = (1 + portfolio_returns).cumprod()
@@ -330,7 +333,7 @@ def show():
                     st.metric("Avg Drawdown", f"{avg_dd:.2%}")
 
                 # 6. Stress testing
-                st.subheader("7️⃣ Stress Testing")
+                st.subheader("7. Stress Testing")
 
                 # Historical stress scenarios
                 st.markdown("**Historical Stress Scenarios**")
@@ -371,7 +374,7 @@ def show():
                     )
 
                 # 7. Return distribution
-                st.subheader("8️⃣ Return Distribution")
+                st.subheader("8. Return Distribution")
 
                 fig_dist = go.Figure()
 
@@ -414,7 +417,7 @@ def show():
                     st.metric("Std Dev", f"{portfolio_returns.std():.2%}")
 
             except Exception as e:
-                st.error(f"❌ Error analyzing portfolio: {str(e)}")
+                st.error(f"Error: Error analyzing portfolio: {str(e)}")
                 logger.error(f"Portfolio risk analysis error: {e}", exc_info=True)
 
     elif portfolio_data is None:

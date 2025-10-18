@@ -34,6 +34,8 @@ from portfolio.security_valuation import (
     AutoValuationSelector
 )
 from portfolio.options_pricing import BlackScholesModel, OptionParameters
+from dashboard.utils.stock_search import compact_stock_search
+from dashboard.utils.theme import apply_vscode_theme
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -42,7 +44,9 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for security pricing page."""
-    st.title("💰 Security Pricing Models")
+    apply_vscode_theme()
+
+    st.title("Security Pricing Models")
     st.markdown("""
     Price different types of securities using appropriate valuation models.
     Models automatically adapt based on security type and available data.
@@ -66,14 +70,19 @@ def show():
 
 def show_equity_pricing():
     """Display equity pricing interface."""
-    st.subheader("📊 Equity Valuation")
+    st.subheader("Equity Valuation")
 
-    valuation_method = st.sidebar.selectbox(
-        "Valuation Method",
-        ["DCF (Discounted Cash Flow)", "DDM (Dividend Discount)", "Relative Valuation", "Auto-Select"]
-    )
+    # Sidebar inputs
+    with st.sidebar:
+        st.subheader("Stock Selection")
+        ticker = compact_stock_search(key="security_pricing_search", default="AAPL")
 
-    ticker = st.sidebar.text_input("Enter Ticker", "AAPL").upper()
+        st.subheader("Valuation Method")
+        valuation_method = st.selectbox(
+            "Select Method",
+            ["DCF (Discounted Cash Flow)", "DDM (Dividend Discount)", "Relative Valuation", "Auto-Select"],
+            label_visibility="collapsed"
+        )
 
     if valuation_method in ["DCF (Discounted Cash Flow)", "Auto-Select"]:
         st.markdown("### DCF Valuation Inputs")
@@ -105,7 +114,7 @@ def show_equity_pricing():
                 result = dcf.calculate_intrinsic_value()
 
                 # Display results
-                st.success("✅ DCF Valuation Complete")
+                st.success("DCF Valuation Complete")
 
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -142,9 +151,9 @@ def show_equity_pricing():
 
                     # Recommendation
                     if upside > 0.20:
-                        st.success("📈 **Strong Buy**: Stock is significantly undervalued (>20% upside)")
+                        st.success("**Strong Buy**: Stock is significantly undervalued (>20% upside)")
                     elif upside > 0.10:
-                        st.info("📊 **Buy**: Stock appears undervalued (10-20% upside)")
+                        st.info("**Buy**: Stock appears undervalued (10-20% upside)")
                     elif upside > -0.10:
                         st.warning("➡️ **Hold**: Stock is fairly valued (±10%)")
                     else:
@@ -182,7 +191,7 @@ def show_equity_pricing():
                 st.plotly_chart(fig_heatmap, use_container_width=True)
 
             except Exception as e:
-                st.error(f"❌ Error calculating DCF: {str(e)}")
+                st.error(f"Error: Error calculating DCF: {str(e)}")
                 logger.error(f"DCF calculation error: {e}", exc_info=True)
 
     elif valuation_method == "DDM (Dividend Discount)":
@@ -200,7 +209,7 @@ def show_equity_pricing():
         if st.button("Calculate DDM Value", type="primary"):
             try:
                 if required_return <= div_growth:
-                    st.error("❌ Required return must be greater than growth rate!")
+                    st.error("Error: Required return must be greater than growth rate!")
                     return
 
                 inputs = DDMInputs(
@@ -212,7 +221,7 @@ def show_equity_pricing():
                 ddm = DDMValuation(inputs)
                 result = ddm.calculate_intrinsic_value()
 
-                st.success("✅ DDM Valuation Complete")
+                st.success("DDM Valuation Complete")
 
                 col1, col2, col3 = st.columns(3)
 
@@ -224,7 +233,7 @@ def show_equity_pricing():
                     st.metric("Dividend Yield", f"{result['dividend_yield']:.2%}")
 
             except Exception as e:
-                st.error(f"❌ Error calculating DDM: {str(e)}")
+                st.error(f"Error: Error calculating DDM: {str(e)}")
 
     else:  # Relative Valuation
         st.markdown("### Relative Valuation")
@@ -304,7 +313,7 @@ def show_bond_pricing():
             result = bond.calculate_price()
             duration = bond.calculate_duration()
 
-            st.success("✅ Bond Pricing Complete")
+            st.success("Bond Pricing Complete")
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -373,13 +382,13 @@ def show_bond_pricing():
             st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
-            st.error(f"❌ Error calculating bond price: {str(e)}")
+            st.error(f"Error: Error calculating bond price: {str(e)}")
             logger.error(f"Bond pricing error: {e}", exc_info=True)
 
 
 def show_option_pricing():
     """Display option pricing interface."""
-    st.subheader("📊 Options Pricing (Black-Scholes)")
+    st.subheader("Options Pricing (Black-Scholes)")
 
     st.markdown("### Option Parameters")
 
@@ -409,7 +418,7 @@ def show_option_pricing():
 
             greeks = bs_model.greeks(option_type.lower())
 
-            st.success("✅ Option Pricing Complete")
+            st.success("Option Pricing Complete")
 
             # Price
             st.markdown("### Option Price")
@@ -490,7 +499,7 @@ def show_option_pricing():
             st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
-            st.error(f"❌ Error calculating option price: {str(e)}")
+            st.error(f"Error: Error calculating option price: {str(e)}")
             logger.error(f"Option pricing error: {e}", exc_info=True)
 
 

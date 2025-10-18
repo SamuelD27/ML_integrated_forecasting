@@ -27,15 +27,18 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from portfolio.hrp_optimizer import HRPOptimizer
+from dashboard.utils.theme import apply_vscode_theme
 
 
 def show():
     """Main function for portfolio from galaxy page."""
-    st.title("🌌 Portfolio from Securities Galaxy")
+    apply_vscode_theme()
+
+    st.title("Portfolio from Securities Galaxy")
     st.markdown("**Create optimal portfolio from your selected universe of securities**")
 
     # === 1. SECURITY SELECTION ===
-    st.header("1️⃣ Select Your Securities")
+    st.header("1. Select Your Securities")
 
     # Predefined galaxies
     galaxy_presets = {
@@ -80,13 +83,13 @@ def show():
     tickers = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
 
     if len(tickers) < 2:
-        st.warning("⚠️ Please enter at least 2 securities")
+        st.warning("Warning: Please enter at least 2 securities")
         return
 
-    st.info(f"📊 Selected {len(tickers)} securities: {', '.join(tickers)}")
+    st.info(f"Selected {len(tickers)} securities: {', '.join(tickers)}")
 
     # === 2. OPTIMIZATION SETTINGS ===
-    st.header("2️⃣ Optimization Settings")
+    st.header("2. Optimization Settings")
 
     col1, col2, col3 = st.columns(3)
 
@@ -133,7 +136,7 @@ def show():
             )
 
     # === 3. RUN OPTIMIZATION ===
-    if st.button("🚀 Optimize Portfolio", type="primary", use_container_width=True):
+    if st.button("Optimize Portfolio", type="primary", use_container_width=True):
         with st.spinner("Fetching data and optimizing portfolio..."):
             try:
                 # Fetch historical data
@@ -168,7 +171,7 @@ def show():
 
                 if len(valid_tickers) < len(tickers):
                     removed = set(tickers) - set(valid_tickers)
-                    st.warning(f"⚠️ Removed tickers due to missing data: {', '.join(removed)}")
+                    st.warning(f"Warning: Removed tickers due to missing data: {', '.join(removed)}")
 
                 # Calculate returns
                 returns = prices.pct_change().dropna()
@@ -199,7 +202,7 @@ def show():
                 weights = weights / weights.sum()
 
                 # === 4. PORTFOLIO METRICS ===
-                st.header("3️⃣ Optimized Portfolio")
+                st.header("3. Optimized Portfolio")
 
                 # Calculate portfolio metrics
                 portfolio_return = (returns.mean() * weights).sum() * 252  # Annualized
@@ -235,7 +238,7 @@ def show():
                 )
 
                 # === 5. WEIGHT ALLOCATION ===
-                st.subheader("📊 Weight Allocation")
+                st.subheader("Weight Allocation")
 
                 col1, col2 = st.columns(2)
 
@@ -280,7 +283,7 @@ def show():
                     st.plotly_chart(fig_bar, use_container_width=True)
 
                 # === 6. ALLOCATION TABLE ===
-                st.subheader("💰 Capital Allocation")
+                st.subheader("Capital Allocation")
 
                 allocation_df = pd.DataFrame({
                     'Ticker': weights.index,
@@ -348,7 +351,7 @@ def show():
                 st.plotly_chart(fig_heatmap, use_container_width=True)
 
                 # === 8. RISK CONTRIBUTION ===
-                st.subheader("⚠️ Risk Contribution")
+                st.subheader("Warning: Risk Contribution")
 
                 # Calculate marginal contribution to risk
                 cov_matrix = returns.cov() * 252
@@ -378,7 +381,7 @@ def show():
                 st.plotly_chart(fig_risk, use_container_width=True)
 
                 # === 9. HISTORICAL PERFORMANCE ===
-                st.subheader("📈 Historical Performance")
+                st.subheader("Historical Performance")
 
                 # Calculate portfolio historical returns
                 portfolio_daily_returns = (returns * weights).sum(axis=1)
@@ -421,7 +424,7 @@ def show():
                 st.plotly_chart(fig_perf, use_container_width=True)
 
                 # === 10. SUMMARY ===
-                st.header("4️⃣ Portfolio Summary")
+                st.header("4. Portfolio Summary")
 
                 summary_text = f"""
                 ### Optimized {optimization_method} Portfolio
@@ -443,10 +446,10 @@ def show():
 
                 st.markdown(summary_text)
 
-                st.success("✅ Portfolio optimization complete! Review allocation and metrics above.")
+                st.success("Portfolio optimization complete! Review allocation and metrics above.")
 
                 # Disclaimer
-                st.caption("⚠️ Disclaimer: Past performance does not guarantee future results. This is for informational purposes only, not financial advice.")
+                st.caption("Warning: Disclaimer: Past performance does not guarantee future results. This is for informational purposes only, not financial advice.")
 
             except Exception as e:
                 st.error(f"An error occurred during optimization: {e}")

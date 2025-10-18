@@ -23,6 +23,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from portfolio.factor_models import FamaFrenchFactorModel
+from dashboard.utils.stock_search import compact_stock_search
+from dashboard.utils.theme import apply_vscode_theme
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -31,7 +33,9 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for factor analysis page."""
-    st.title("📈 Factor Analysis (Fama-French)")
+    apply_vscode_theme()
+
+    st.title("Factor Analysis (Fama-French)")
     st.markdown("""
     Analyze factor exposures using Fama-French models.
     Understand what drives your returns: market, size, value, profitability, or investment.
@@ -61,9 +65,9 @@ def show():
     weights = None
 
     if analysis_type == "Single Stock":
-        ticker_input = st.sidebar.text_input("Enter Ticker", "AAPL")
+        ticker_input = compact_stock_search(key="factor_analysis_search", default="AAPL")
         if ticker_input:
-            tickers = [ticker_input.upper()]
+            tickers = [ticker_input]
 
     elif analysis_type == "Multiple Stocks":
         ticker_input = st.sidebar.text_area(
@@ -103,7 +107,7 @@ def show():
                 ff_analyzer = FamaFrenchFactorModel(model=model_name)
 
                 # 1. Fetch stock data
-                st.subheader("1️⃣ Downloading Data")
+                st.subheader("1. Downloading Data")
 
                 raw_data = yf.download(tickers, period=lookback_period, progress=False)
 
@@ -121,7 +125,7 @@ def show():
 
                 returns = data.pct_change().dropna()
 
-                st.success(f"✅ Downloaded {len(returns)} days of data for {len(tickers)} asset(s)")
+                st.success(f"Downloaded {len(returns)} days of data for {len(tickers)} asset(s)")
 
                 # 2. Calculate portfolio returns if applicable
                 if analysis_type == "Portfolio" and weights is not None:
@@ -132,7 +136,7 @@ def show():
                     analysis_returns = returns
 
                 # 3. Run factor regression for each asset
-                st.subheader("2️⃣ Factor Regression Results")
+                st.subheader("2. Factor Regression Results")
 
                 n_factors = 5 if "5-Factor" in model_type else 3
 
@@ -151,7 +155,7 @@ def show():
 
                 # 4. Display results for each asset
                 for asset_name, result in all_results.items():
-                    with st.expander(f"📊 {asset_name} - Factor Analysis", expanded=len(all_results)==1):
+                    with st.expander(f"{asset_name} - Factor Analysis", expanded=len(all_results)==1):
 
                         # Alpha and R-squared
                         col1, col2, col3 = st.columns(3)
@@ -174,7 +178,7 @@ def show():
                             is_significant = p_value < 0.05
                             st.metric(
                                 "Alpha Significance",
-                                "Yes ✅" if is_significant else "No ❌",
+                                "Yes " if is_significant else "No Error: ",
                                 delta=f"p-value: {p_value:.4f}"
                             )
 
@@ -188,26 +192,29 @@ def show():
                         # Factor loadings (betas)
                         st.markdown("**Factor Exposures (Betas)**")
 
-                        factor_names = {
-                            'mkt_rf': 'Market',
-                            'smb': 'Size (Small - Big)',
-                            'hml': 'Value (High - Low)',
-                            'rmw': 'Profitability (Robust - Weak)',
-                            'cma': 'Investment (Conservative - Aggressive)'
+                        # Map between result keys and display names
+                        factor_mapping = {
+                            'beta_MKT': 'Market',
+                            'beta_SMB': 'Size (Small - Big)',
+                            'beta_HML': 'Value (High - Low)',
+                            'beta_RMW': 'Profitability (Robust - Weak)',
+                            'beta_CMA': 'Investment (Conservative - Aggressive)'
                         }
 
                         betas_data = []
-                        for factor, display_name in factor_names.items():
-                            if factor in result:
-                                beta = result[factor]
-                                pvalue = result.get(f'{factor}_pvalue', 1.0)
-                                significant = "✅" if pvalue < 0.05 else "❌"
+                        for beta_key, display_name in factor_mapping.items():
+                            if beta_key in result:
+                                beta = result[beta_key]
+                                # P-value might be stored with different key patterns
+                                pvalue_key = beta_key.replace('beta_', '') + '_pvalue'
+                                pvalue = result.get(pvalue_key, 1.0)
+                                significant = "Yes" if pvalue < 0.05 else "No"
 
                                 betas_data.append({
                                     'Factor': display_name,
-                                    'Beta': beta,
+                                    'Beta': f"{beta:.3f}",
                                     'Significant': significant,
-                                    'P-Value': pvalue
+                                    'P-Value': f"{pvalue:.4f}"
                                 })
 
                         betas_df = pd.DataFrame(betas_data)
@@ -216,24 +223,22 @@ def show():
                             col1, col2 = st.columns(2)
 
                             with col1:
-                                st.dataframe(
-                                    betas_df.style.format({
-                                        'Beta': '{:.3f}',
-                                        'P-Value': '{:.4f}'
-                                    }),
-                                    use_container_width=True
-                                )
+                                st.dataframe(betas_df, use_container_width=True, hide_index=True)
 
                             with col2:
-                                # Beta chart
+                                # Beta chart - convert Beta back to float for plotting
+                                chart_data = betas_df.copy()
+                                chart_data['Beta_Numeric'] = chart_data['Beta'].astype(float)
+
                                 fig_beta = px.bar(
-                                    betas_df,
+                                    chart_data,
                                     x='Factor',
-                                    y='Beta',
+                                    y='Beta_Numeric',
                                     title=f'{asset_name} Factor Betas',
-                                    color='Beta',
+                                    color='Beta_Numeric',
                                     color_continuous_scale='RdBu',
-                                    color_continuous_midpoint=0
+                                    color_continuous_midpoint=0,
+                                    labels={'Beta_Numeric': 'Beta'}
                                 )
                                 st.plotly_chart(fig_beta, use_container_width=True)
                         else:
@@ -252,7 +257,7 @@ def show():
 
                 # 5. Comparison across assets (if multiple)
                 if len(all_results) > 1:
-                    st.subheader("3️⃣ Cross-Asset Comparison")
+                    st.subheader("3. Cross-Asset Comparison")
 
                     # Alpha comparison
                     alpha_data = []
@@ -322,7 +327,7 @@ def show():
                     st.plotly_chart(fig_heatmap, use_container_width=True)
 
                 # 6. Export results
-                st.subheader("4️⃣ Export Results")
+                st.subheader("4. Export Results")
 
                 # Prepare export data
                 export_data = []
@@ -353,7 +358,7 @@ def show():
                 )
 
             except Exception as e:
-                st.error(f"❌ Error analyzing factors: {str(e)}")
+                st.error(f"Error: Error analyzing factors: {str(e)}")
                 logger.error(f"Factor analysis error: {e}", exc_info=True)
 
     elif not tickers:

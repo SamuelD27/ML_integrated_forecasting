@@ -32,6 +32,8 @@ from portfolio.advanced_monte_carlo import (
     calculate_path_statistics,
     calculate_risk_metrics
 )
+from dashboard.utils.stock_search import compact_stock_search
+from dashboard.utils.theme import apply_vscode_theme
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -40,7 +42,9 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for advanced Monte Carlo simulation page."""
-    st.title("🎲 Advanced Monte Carlo Simulation")
+    apply_vscode_theme()
+
+    st.title("Advanced Monte Carlo Simulation")
     st.markdown("""
     Simulate future price paths using advanced models.
     Visualize potential outcomes, risk metrics, and probability distributions.
@@ -49,7 +53,7 @@ def show():
     # Sidebar inputs
     st.sidebar.header("Configuration")
 
-    ticker = st.sidebar.text_input("Enter Ticker Symbol", "AAPL").upper()
+    ticker = compact_stock_search(key="monte_carlo_search", default="AAPL")
 
     simulation_model = st.sidebar.selectbox(
         "Simulation Model",
@@ -74,13 +78,13 @@ def show():
         with st.spinner("Running Monte Carlo simulation..."):
             try:
                 # 1. Fetch historical data
-                st.subheader("1️⃣ Historical Data Analysis")
+                st.subheader("1. Historical Data Analysis")
 
                 stock = yf.Ticker(ticker)
                 hist_data = stock.history(period="2y")
 
                 if hist_data.empty:
-                    st.error(f"❌ No data found for {ticker}")
+                    st.error(f"Error: No data found for {ticker}")
                     return
 
                 current_price = hist_data['Close'].iloc[-1]
@@ -100,7 +104,7 @@ def show():
                     st.metric("Data Points", len(returns))
 
                 # 2. Run simulation based on selected model
-                st.subheader(f"2️⃣ Running {simulation_model}")
+                st.subheader(f"2. Running {simulation_model}")
 
                 mu = annual_return
                 sigma = annual_vol
@@ -168,10 +172,10 @@ def show():
 
                     st.info("Using antithetic variates for variance reduction (2x efficiency)")
 
-                st.success(f"✅ Generated {n_paths} price paths over {time_horizon} years")
+                st.success(f"Generated {n_paths} price paths over {time_horizon} years")
 
                 # 3. Visualize paths
-                st.subheader("3️⃣ Simulated Price Paths")
+                st.subheader("3. Simulated Price Paths")
 
                 # Plot subset of paths
                 n_display = min(100, n_paths)
@@ -221,7 +225,7 @@ def show():
                 st.plotly_chart(fig_paths, use_container_width=True)
 
                 # 4. Statistics
-                st.subheader("4️⃣ Simulation Statistics")
+                st.subheader("4. Simulation Statistics")
 
                 stats = calculate_path_statistics(paths)
 
@@ -237,7 +241,7 @@ def show():
                     st.metric("95th Percentile", f"${stats['percentile_95']:.2f}")
 
                 # 5. Risk metrics
-                st.subheader("5️⃣ Risk Metrics")
+                st.subheader("5. Risk Metrics")
 
                 risk_metrics = calculate_risk_metrics(paths, S0, confidence_level=0.95)
 
@@ -267,7 +271,7 @@ def show():
                 """)
 
                 # 6. Distribution of final prices
-                st.subheader("6️⃣ Final Price Distribution")
+                st.subheader("6. Final Price Distribution")
 
                 final_prices = paths[:, -1]
 
@@ -299,7 +303,7 @@ def show():
                 st.plotly_chart(fig_dist, use_container_width=True)
 
                 # 7. Confidence intervals over time
-                st.subheader("7️⃣ Confidence Intervals")
+                st.subheader("7. Confidence Intervals")
 
                 # Calculate percentiles at each time step
                 percentiles = {
@@ -371,7 +375,7 @@ def show():
                 st.plotly_chart(fig_ci, use_container_width=True)
 
                 # 8. Export results
-                st.subheader("8️⃣ Export Results")
+                st.subheader("8. Export Results")
 
                 # Prepare summary data
                 summary_data = {
@@ -418,7 +422,7 @@ def show():
                 )
 
             except Exception as e:
-                st.error(f"❌ Error running simulation: {str(e)}")
+                st.error(f"Error: Error running simulation: {str(e)}")
                 logger.error(f"Monte Carlo simulation error: {e}", exc_info=True)
 
 

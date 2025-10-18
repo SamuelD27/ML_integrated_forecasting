@@ -26,6 +26,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from portfolio.peer_discovery import discover_peers
 from portfolio.hrp_optimizer import HRPOptimizer
 from portfolio.advanced_optimizer import optimize_mean_variance
+from dashboard.utils.stock_search import compact_stock_search
+from dashboard.utils.theme import apply_vscode_theme
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -60,7 +62,9 @@ def calculate_risk_metrics(returns: pd.Series) -> Dict:
 
 def show():
     """Main function for portfolio from single stock page."""
-    st.title("📊 Portfolio from Single Stock")
+    apply_vscode_theme()
+
+    st.title("Portfolio from Single Stock")
     st.markdown("""
     Build a diversified portfolio starting from a single stock.
     We'll find optimal peers and construct an efficient portfolio.
@@ -69,7 +73,7 @@ def show():
     # Sidebar inputs
     st.sidebar.header("Configuration")
 
-    ticker = st.sidebar.text_input("Enter Ticker Symbol", "AAPL").upper()
+    ticker = compact_stock_search(key="portfolio_single_search", default="AAPL")
     n_peers = st.sidebar.slider("Number of Peers", 3, 15, 5)
     lookback_period = st.sidebar.selectbox(
         "Lookback Period",
@@ -86,7 +90,7 @@ def show():
         with st.spinner("Building portfolio..."):
             try:
                 # 1. Fetch base stock data
-                st.subheader(f"1️⃣ Analyzing Base Stock: {ticker}")
+                st.subheader(f"1. Analyzing Base Stock: {ticker}")
                 base_stock = yf.Ticker(ticker)
                 base_info = base_stock.info
 
@@ -99,7 +103,7 @@ def show():
                     st.metric("Industry", base_info.get('industry', 'N/A'))
 
                 # 2. Discover peers
-                st.subheader("2️⃣ Discovering Similar Stocks")
+                st.subheader("2. Discovering Similar Stocks")
 
                 # Get peers based on sector and characteristics
                 sector = base_info.get('sector', '')
@@ -107,15 +111,18 @@ def show():
                 market_cap = base_info.get('marketCap', 0)
 
                 # Use peer discovery function
-                all_peers = discover_peers(
+                peer_result = discover_peers(
                     primary_ticker=ticker,
                     max_peers=n_peers * 3,  # Get more candidates
                     min_price=5.0,
                     min_avg_volume=1_000_000,
-                    match_industry=True
+                    require_same_industry=True
                 )
 
-                # Filter out the primary ticker itself
+                # Extract peers list from result dictionary
+                all_peers = peer_result.get('peers', [])
+
+                # Filter out the primary ticker itself if it's in the list
                 all_peers = [p for p in all_peers if p != ticker]
 
                 if len(all_peers) < n_peers:
@@ -125,7 +132,7 @@ def show():
                     # Select top N
                     selected_peers = all_peers[:n_peers]
 
-                st.info(f"✅ Found {len(selected_peers)} peer stocks")
+                st.info(f"Found {len(selected_peers)} peer stocks")
 
                 # Display peers
                 peer_df = pd.DataFrame([
@@ -139,7 +146,7 @@ def show():
                 st.dataframe(peer_df, use_container_width=True)
 
                 # 3. Fetch historical data for all stocks
-                st.subheader("3️⃣ Fetching Historical Data")
+                st.subheader("3. Fetching Historical Data")
                 all_tickers = [ticker] + selected_peers
 
                 # Download data
@@ -163,10 +170,10 @@ def show():
                 # Calculate returns
                 returns = data.pct_change().dropna()
 
-                st.success(f"✅ Downloaded {len(returns)} days of data")
+                st.success(f"Downloaded {len(returns)} days of data")
 
                 # 4. Optimize portfolio
-                st.subheader("4️⃣ Portfolio Optimization")
+                st.subheader("4. Portfolio Optimization")
 
                 if optimization_method == "HRP (Hierarchical Risk Parity)":
                     optimizer = HRPOptimizer()
@@ -186,7 +193,7 @@ def show():
                     method_name = "Equal Weight"
 
                 # 5. Display results
-                st.subheader(f"5️⃣ Optimal Weights ({method_name})")
+                st.subheader(f"5. Optimal Weights ({method_name})")
 
                 # Prepare weights dataframe
                 weights_df = pd.DataFrame({
@@ -226,7 +233,7 @@ def show():
                 )
 
                 # 6. Portfolio metrics
-                st.subheader("6️⃣ Portfolio Performance Metrics")
+                st.subheader("6. Portfolio Performance Metrics")
 
                 # Calculate portfolio returns
                 portfolio_returns = (returns * weights).sum(axis=1)
@@ -258,7 +265,7 @@ def show():
                     )
 
                 # 7. Cumulative returns chart
-                st.subheader("7️⃣ Cumulative Returns")
+                st.subheader("7. Cumulative Returns")
 
                 # Calculate cumulative returns
                 cumulative_returns = (1 + portfolio_returns).cumprod()
@@ -288,7 +295,7 @@ def show():
                 st.plotly_chart(fig, use_container_width=True)
 
                 # 8. Correlation heatmap
-                st.subheader("8️⃣ Correlation Matrix")
+                st.subheader("8. Correlation Matrix")
 
                 corr_matrix = returns.corr()
 
@@ -311,7 +318,7 @@ def show():
                 st.plotly_chart(fig_corr, use_container_width=True)
 
                 # 9. Export functionality
-                st.subheader("9️⃣ Export Results")
+                st.subheader("9. Export Results")
 
                 col1, col2 = st.columns(2)
 
@@ -347,7 +354,7 @@ def show():
                     )
 
             except Exception as e:
-                st.error(f"❌ Error building portfolio: {str(e)}")
+                st.error(f"Error: Error building portfolio: {str(e)}")
                 logger.error(f"Portfolio building error: {e}", exc_info=True)
 
 
