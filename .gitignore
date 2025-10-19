@@ -20,6 +20,7 @@ data/
 # Documentation (not needed on GitHub per user request)
 *.md
 !README.md  # Keep only the main README if it exists
+!USER_GUIDE.md  # Keep user guide for sharing with friends
 
 # Python
 __pycache__/
