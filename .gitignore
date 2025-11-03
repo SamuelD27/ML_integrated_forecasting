@@ -1,4 +1,7 @@
 
+# Git Worktrees
+.worktrees/
+
 # Virtual Environment
 venv/
 venv_ml/
