@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
 Fetch complete S&P 500 dataset for B200 training.
-500 tickers × 15 years = ~7.5M rows
+500 tickers × 25 years = ~12.5M rows (compressed with smart downsampling)
+
+Features:
+- Extended historical data (25 years)
+- Smart downsampling (daily/weekly/monthly)
+- Zstd level 9 compression
+- 3-5x storage reduction
 """
 
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
+import sys
 
 # Import from existing script
-import sys
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fetch_training_data_large import (
     fetch_all_tickers,
     add_technical_features,
-    save_data,
     logger
 )
+from data.storage.compression_utils import DataCompressor, compress_training_data
 
 # S&P 500 tickers (curated high-quality 500)
 SP500_TICKERS = [
@@ -90,31 +97,98 @@ SP500_TICKERS = [
 ]
 
 
-def main():
-    """Fetch S&P 500 data."""
+def save_compressed_data(df, output_dir: Path, apply_downsampling: bool = True):
+    """
+    Save data with compression and optional downsampling.
+
+    Args:
+        df: DataFrame to save
+        output_dir: Output directory
+        apply_downsampling: Whether to apply smart downsampling
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    compressor = DataCompressor()
+
+    # Apply downsampling if requested
+    if apply_downsampling:
+        logger.info("Applying smart downsampling (daily/weekly/monthly)...")
+        df = compressor.apply_smart_downsampling(df, date_column='Date')
+
+    # Compress and save
+    output_path = output_dir / 'training_data_compressed.parquet'
+    stats = compressor.compress_and_save(
+        df,
+        output_path,
+        validate=True,
+        metadata={
+            'n_tickers': df['ticker'].nunique(),
+            'tickers': sorted(df['ticker'].unique().tolist()),
+            'date_range': {
+                'start': df['Date'].min().strftime('%Y-%m-%d'),
+                'end': df['Date'].max().strftime('%Y-%m-%d')
+            },
+            'downsampled': apply_downsampling,
+        }
+    )
+
+    # Save metadata
+    import json
+    metadata_path = output_dir / 'metadata.json'
+    with open(metadata_path, 'w') as f:
+        json.dump(stats, f, indent=2, default=str)
+
+    logger.info(f"Saved compressed data: {output_path}")
+    logger.info(f"Compression ratio: {stats['compression_ratio']}x")
+
+    # Also save a legacy uncompressed version for compatibility
+    legacy_path = output_dir / 'training_data.parquet'
+    df.to_parquet(legacy_path, compression='snappy', index=False)
+    logger.info(f"Saved legacy format: {legacy_path}")
+
+    # Print summary
     print("\n" + "=" * 80)
-    print("S&P 500 DATA FETCHING FOR B200 TRAINING")
+    print("DATA SUMMARY")
+    print("=" * 80)
+    print(f"Total rows: {stats['rows']:,}")
+    print(f"Total tickers: {df['ticker'].nunique()}")
+    print(f"Date range: {df['Date'].min()} to {df['Date'].max()}")
+    print(f"Columns: {stats['columns']}")
+    print(f"\nCompression:")
+    print(f"  Original size: {stats['original_size_mb']} MB")
+    print(f"  Compressed size: {stats['compressed_size_mb']} MB")
+    print(f"  Compression ratio: {stats['compression_ratio']}x")
+    print(f"  Downsampling: {'Yes' if apply_downsampling else 'No'}")
+    print("=" * 80)
+
+
+def main():
+    """Fetch S&P 500 data with extended history and compression."""
+    print("\n" + "=" * 80)
+    print("S&P 500 DATA FETCHING FOR B200 TRAINING (EXTENDED)")
     print("=" * 80)
 
     # Configuration
     END_DATE = datetime.now().strftime('%Y-%m-%d')
-    START_DATE = (datetime.now() - timedelta(days=15*365)).strftime('%Y-%m-%d')  # 15 years
+    START_DATE = (datetime.now() - timedelta(days=25*365 + 6)).strftime('%Y-%m-%d')  # 25 years + leap days
     INTERVAL = '1d'
     OUTPUT_DIR = Path('/workspace/data/training')
+    APPLY_DOWNSAMPLING = True  # Enable smart downsampling
 
     print(f"\nConfiguration:")
-    print(f"  Start date: {START_DATE}")
+    print(f"  Start date: {START_DATE} (25 years)")
     print(f"  End date: {END_DATE}")
     print(f"  Interval: {INTERVAL}")
     print(f"  Tickers: {len(SP500_TICKERS)}")
     print(f"  Output: {OUTPUT_DIR}")
+    print(f"  Smart downsampling: {APPLY_DOWNSAMPLING}")
 
     # Create output directory
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Fetch data
     print("\n" + "-" * 80)
-    print("STEP 1: FETCHING RAW DATA")
+    print("STEP 1: FETCHING RAW DATA (25 YEARS)")
     print("-" * 80)
 
     df = fetch_all_tickers(
@@ -132,12 +206,18 @@ def main():
 
     df = add_technical_features(df)
 
-    # Step 3: Save
+    # Drop NaN rows
+    initial_rows = len(df)
+    df = df.dropna()
+    dropped_rows = initial_rows - len(df)
+    logger.info(f"Dropped {dropped_rows:,} rows with NaN values ({dropped_rows/initial_rows*100:.1f}%)")
+
+    # Step 3: Compress and save
     print("\n" + "-" * 80)
-    print("STEP 3: SAVING DATA")
+    print("STEP 3: COMPRESSING AND SAVING DATA")
     print("-" * 80)
 
-    save_data(df, OUTPUT_DIR)
+    save_compressed_data(df, OUTPUT_DIR, apply_downsampling=APPLY_DOWNSAMPLING)
 
     print("\n" + "=" * 80)
     print("✅ S&P 500 DATA FETCHING COMPLETE!")

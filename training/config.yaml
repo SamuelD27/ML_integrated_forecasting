@@ -34,6 +34,24 @@ data:
         - DGS10
         - VIXCLS
 
+    # Fundamentals data
+    fundamentals:
+      enabled: true
+      priority: 4
+      use_yfinance: true
+      use_fmp: false  # Set to true if FMP_API_KEY is set
+      cache_days: 7  # Cache fundamentals for 7 days
+      include_quarterly: true  # Include quarterly financials
+
+    # Sentiment data (requires API keys)
+    sentiment:
+      enabled: false  # Set to true when sentiment providers configured
+      priority: 5
+      use_finbert: true
+      use_newsapi: false  # Set to true if NEWSAPI_KEY is set
+      use_reddit: false  # Set to true if Reddit credentials set
+      cache_days: 1  # Cache sentiment for 1 day
+
   # Time series parameters
   sequence_length: 60  # Number of time steps to look back
   forecast_horizon: 1  # Days ahead to predict
@@ -60,6 +78,7 @@ data:
     microstructure: true
     volatility: true
     sentiment: true
+    fundamentals: true  # Company fundamentals (P/E, ROE, margins, etc.)
     cross_sectional: false  # Set to true if market data available
     intraday: false  # Set to true if Alpaca enabled
     macro: false  # Set to true if FRED enabled
