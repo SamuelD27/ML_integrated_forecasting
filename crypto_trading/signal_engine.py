@@ -2,7 +2,7 @@
 Signal generation engine with EMA crossover detection.
 """
 import pandas as pd
-import talib
+from ta.trend import EMAIndicator
 import logging
 from typing import Optional, Tuple
 from dataclasses import dataclass
@@ -37,7 +37,7 @@ class EMACalculator:
 
     def calculate(self, prices: pd.Series) -> pd.Series:
         """
-        Calculate EMA using talib.
+        Calculate EMA using ta library.
 
         Args:
             prices: Price series
@@ -49,10 +49,9 @@ class EMACalculator:
             # Return NaN series if insufficient data
             return pd.Series([float('nan')] * len(prices))
 
-        # Convert to float64 for talib
-        prices_float = prices.astype('float64')
-        ema = talib.EMA(prices_float.values, timeperiod=self.period)
-        return pd.Series(ema, index=prices.index)
+        # Use ta library's EMAIndicator
+        ema_indicator = EMAIndicator(close=prices, window=self.period)
+        return ema_indicator.ema_indicator()
 
 
 class CrossoverDetector:

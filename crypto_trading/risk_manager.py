@@ -2,7 +2,7 @@
 Risk management with volatility-based position sizing.
 """
 import pandas as pd
-import talib
+from ta.volatility import AverageTrueRange
 import logging
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -44,15 +44,17 @@ class VolatilityCalculator:
         if len(ohlc_df) < self.period:
             return 0.0
 
-        atr = talib.ATR(
-            ohlc_df['high'].values.astype(float),
-            ohlc_df['low'].values.astype(float),
-            ohlc_df['close'].values.astype(float),
-            timeperiod=self.period
+        # Use ta library's AverageTrueRange
+        atr_indicator = AverageTrueRange(
+            high=ohlc_df['high'],
+            low=ohlc_df['low'],
+            close=ohlc_df['close'],
+            window=self.period
         )
+        atr_values = atr_indicator.average_true_range()
 
         # Return last ATR value
-        return float(atr[-1]) if not pd.isna(atr[-1]) else 0.0
+        return float(atr_values.iloc[-1]) if not pd.isna(atr_values.iloc[-1]) else 0.0
 
 
 class PositionSizer:
