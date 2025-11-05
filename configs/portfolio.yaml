@@ -1,0 +1,221 @@
+# Portfolio Configuration
+# ========================
+# Configuration for portfolio optimization and risk management
+
+# Optimization method
+optimization:
+  # Default optimizer
+  default: "black_litterman"  # Options: "black_litterman", "hrp", "mean_variance", "cvar"
+
+  # Black-Litterman
+  black_litterman:
+    risk_aversion: 2.5  # λ parameter (1-5, higher = more conservative)
+    tau: 0.025  # Uncertainty scaling (0.01-0.05)
+    market_cap_weighted: false  # Use market cap for equilibrium weights
+
+  # Hierarchical Risk Parity (HRP)
+  hrp:
+    linkage_method: "ward"  # Options: "single", "complete", "average", "ward"
+    distance_metric: "euclidean"  # Options: "euclidean", "correlation"
+
+  # Mean-Variance (Markowitz)
+  mean_variance:
+    risk_aversion: 3.0
+    regularization: 0.001  # L2 regularization on covariance
+
+  # CVaR (Conditional Value at Risk)
+  cvar:
+    confidence_level: 0.95  # 95% confidence
+    risk_aversion: 2.5
+    n_scenarios: 10000  # Monte Carlo scenarios
+
+# Portfolio constraints
+constraints:
+  # Long-only constraint
+  long_only: true
+
+  # Position limits
+  max_weight: 0.30  # Maximum weight per asset (30%)
+  min_weight: 0.00  # Minimum weight per asset (0% = allow 0)
+
+  # Sector constraints (optional)
+  sector_limits:
+    enabled: false
+    max_sector_weight: 0.40
+
+  # Turnover constraint (for rebalancing)
+  max_turnover: null  # Maximum turnover per period (null = no limit)
+
+  # Budget constraint
+  budget: 1.0  # Total weight must equal 1.0 (100%)
+
+# Risk management
+risk:
+  # Target metrics
+  target_volatility: 0.15  # 15% annualized volatility
+  max_drawdown: 0.20  # Maximum 20% drawdown
+
+  # Risk-free rate
+  risk_free_rate: 0.04  # 4% annual risk-free rate
+
+  # Covariance estimation
+  covariance:
+    method: "ledoit_wolf"  # Options: "sample", "ledoit_wolf", "oas"
+    lookback_days: 252  # 1 year
+
+  # Expected returns estimation
+  expected_returns:
+    method: "ml_forecasts"  # Options: "historical", "capm", "ml_forecasts"
+    lookback_days: 252
+
+  # Rebalancing
+  rebalance:
+    frequency: "monthly"  # Options: "daily", "weekly", "monthly", "quarterly"
+    threshold: 0.05  # Rebalance if weight drifts by >5%
+
+# ML integration
+ml_integration:
+  # Use ML forecasts for expected returns
+  use_ml_forecasts: true
+
+  # Minimum confidence for views
+  min_confidence: 0.3
+
+  # View confidence scaling
+  confidence_scaling: "linear"  # Options: "linear", "quadratic", "exponential"
+
+  # Forecast horizon
+  horizon: "1m"  # Options: "1w", "1m", "3m"
+
+# Transaction costs
+transaction_costs:
+  # Commission
+  commission: 0.001  # 0.1% per trade
+
+  # Slippage
+  slippage: 0.0005  # 0.05% slippage
+
+  # Market impact (for large orders)
+  market_impact:
+    enabled: false
+    model: "linear"  # Options: "linear", "sqrt", "nonlinear"
+    coefficient: 0.0001
+
+# Backtesting
+backtesting:
+  # Initial capital
+  initial_capital: 100000
+
+  # Benchmark
+  benchmark: "SPY"  # S&P 500 ETF
+
+  # Rebalancing settings
+  rebalance_frequency: "monthly"
+  rebalance_day: 1  # Day of month to rebalance
+
+  # Performance metrics to track
+  metrics:
+    - total_return
+    - annualized_return
+    - volatility
+    - sharpe_ratio
+    - sortino_ratio
+    - max_drawdown
+    - calmar_ratio
+    - information_ratio
+    - tracking_error
+
+# Reporting
+reporting:
+  # Output format
+  format: "excel"  # Options: "excel", "pdf", "html"
+
+  # Sections to include
+  sections:
+    - summary  # Portfolio summary
+    - holdings  # Current holdings
+    - performance  # Performance metrics
+    - risk  # Risk analysis
+    - transactions  # Transaction history
+    - attribution  # Performance attribution
+
+  # Excel-specific settings
+  excel:
+    include_charts: true
+    include_statistics: true
+    include_risk_analysis: true
+
+# Factor models (optional)
+factor_models:
+  # Fama-French factors
+  fama_french:
+    enabled: false
+    factors:
+      - market  # Market factor
+      - smb  # Size factor
+      - hml  # Value factor
+      - rmw  # Profitability factor
+      - cma  # Investment factor
+
+  # Macro factors
+  macro:
+    enabled: false
+    factors:
+      - interest_rates
+      - inflation
+      - gdp_growth
+      - vix
+
+# Regime detection
+regime:
+  enabled: true
+
+  # Regime types
+  regimes:
+    - bull
+    - bear
+    - neutral
+    - crisis
+
+  # Detection method
+  method: "hmm"  # Options: "hmm", "rule_based", "ml"
+
+  # Regime-specific parameters
+  regime_params:
+    bull:
+      risk_aversion: 2.0
+      max_position: 0.30
+      leverage: 1.0
+
+    bear:
+      risk_aversion: 4.0
+      max_position: 0.15
+      leverage: 0.5
+
+    neutral:
+      risk_aversion: 2.5
+      max_position: 0.25
+      leverage: 1.0
+
+    crisis:
+      risk_aversion: 10.0
+      max_position: 0.10
+      leverage: 0.0  # Go to cash
+
+# Hedging (optional)
+hedging:
+  enabled: false
+
+  # Hedge instruments
+  instruments:
+    - SPY_put  # S&P 500 put options
+    - VIX_call  # VIX call options
+    - TLT  # Long-term Treasury ETF
+
+  # Hedge ratio
+  hedge_ratio: 0.1  # Hedge 10% of portfolio value
+
+  # Dynamic hedging
+  dynamic:
+    enabled: true
+    threshold_volatility: 0.25  # Increase hedge if vol > 25%

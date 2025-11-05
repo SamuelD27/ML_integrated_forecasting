@@ -1,9 +1,10 @@
-from .hybrid_base import HybridModelBase
-from .cnn_module import CNN1DFeatureExtractor
-from .lstm_module import LSTMEncoder
-from .transformer_module import TransformerEncoder
-from .fusion_layer import AttentionFusion
-from .hybrid_model import HybridTradingModel
+# PyTorch-dependent imports are lazy-loaded to avoid requiring PyTorch
+# when only using non-PyTorch models (e.g., ensemble, LightGBM)
+#
+# To use PyTorch models, import them explicitly:
+#   from ml_models.hybrid_base import HybridModelBase
+#   from ml_models.hybrid_model import HybridTradingModel
+# etc.
 
 __all__ = [
     'HybridModelBase',

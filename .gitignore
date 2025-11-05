@@ -24,6 +24,9 @@ data/
 *.md
 !README.md  # Keep only the main README if it exists
 !USER_GUIDE.md  # Keep user guide for sharing with friends
+!CLAUDE.md  # Keep project instructions
+!integration/README.md  # Keep integration layer docs
+!REORGANIZATION_SUMMARY.md  # Keep reorganization summary (temporary)
 
 # Python
 __pycache__/
@@ -167,3 +170,14 @@ credentials/
 last_fetch*  # Data files
 stock_data*  # Data files
 figures/  # Generated figures
+deprecated/  # Archived old code
+
+# Temporary audit files (remove after review)
+AUDIT_*.txt
+*_AUDIT.md
+FILES_TO_DELETE_MOVE.txt
+DELETION_QUICK_REFERENCE.txt
+
+# Generated output directories
+outputs/
+output/

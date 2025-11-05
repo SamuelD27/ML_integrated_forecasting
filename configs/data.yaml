@@ -1,0 +1,125 @@
+# Data Configuration
+# ===================
+# Configuration for data fetching, processing, and storage
+
+market_data:
+  # Primary data providers (in order of preference)
+  providers:
+    - yahoo  # Yahoo Finance (free, unreliable)
+    - alpaca  # Alpaca Markets (requires API key)
+    # - polygon  # Polygon.io (requires API key)
+    # - alphavantage  # Alpha Vantage (requires API key)
+
+  # Default tickers for quick testing
+  default_tickers:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+
+  # Ticker universe files
+  universes:
+    sp500: "tickers/sp500.txt"
+    nasdaq100: "tickers/nasdaq100.txt"
+    dow30: "tickers/dow30.txt"
+
+  # Date range configuration
+  date_range:
+    # Options: "relative" or "fixed"
+    mode: "relative"
+
+    # Relative mode: years back from today
+    years_back: 5
+
+    # Fixed mode (alternative)
+    # start_date: "2020-01-01"
+    # end_date: "2025-01-01"
+
+  # Data quality and validation
+  validation:
+    min_data_points: 252  # Minimum trading days (1 year)
+    max_missing_pct: 5.0  # Max % of missing data allowed
+    outlier_std_threshold: 5.0  # Std devs for outlier detection
+
+# Caching configuration
+cache:
+  enabled: true
+  ttl_hours: 24  # Time-to-live for cached data
+  directory: "data/cache"
+  format: "parquet"  # Options: "parquet", "csv", "pickle"
+  compression: "snappy"  # Options: "snappy", "gzip", "brotli"
+
+# Storage configuration
+storage:
+  # Raw data
+  raw_data_dir: "data/raw"
+
+  # Processed data
+  processed_data_dir: "data/processed"
+
+  # Training data
+  training_data_dir: "data/training"
+
+  # Factor data
+  factor_data_dir: "data/factors"
+
+# Feature engineering
+features:
+  # Technical indicators
+  technical:
+    - sma_20  # 20-day simple moving average
+    - sma_50
+    - sma_200
+    - ema_12
+    - ema_26
+    - rsi_14  # 14-day RSI
+    - macd  # MACD indicator
+    - bb_upper  # Bollinger Bands
+    - bb_lower
+    - atr_14  # Average True Range
+    - volume_sma_20
+
+  # Momentum features
+  momentum:
+    - returns_1d
+    - returns_5d
+    - returns_20d
+    - returns_60d
+    - volatility_20d
+    - volatility_60d
+
+  # Advanced features (optional, computationally expensive)
+  advanced:
+    enabled: false
+    features:
+      - kalman_filter
+      - wavelet_decomposition
+      - fractal_dimension
+
+# Alternative data (optional)
+alternative_data:
+  # Sentiment analysis
+  sentiment:
+    enabled: false
+    providers:
+      - finbert  # FinBERT sentiment
+      - newsapi  # News sentiment
+
+  # Social media
+  social:
+    enabled: false
+    sources:
+      - reddit  # Reddit mentions
+      - twitter  # Twitter sentiment
+
+# Macro indicators
+macro:
+  enabled: true
+  fred_api_key: "${FRED_API_KEY}"  # Environment variable
+  indicators:
+    - DGS10  # 10-year Treasury
+    - DGS2  # 2-year Treasury
+    - VIXCLS  # VIX index
+    - DEXUSEU  # USD/EUR exchange rate
+    - UNRATE  # Unemployment rate
+    - CPIAUCSL  # CPI

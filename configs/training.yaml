@@ -1,0 +1,197 @@
+# Training Configuration
+# =======================
+# Configuration for model training (hyperparameters, optimization, hardware)
+
+# Training hyperparameters
+training:
+  # Batch size
+  batch_size: 16384  # Large batch for B200 GPUs
+  batch_size_small: 128  # For local development
+
+  # Epochs
+  max_epochs: 150
+  min_epochs: 50
+
+  # Learning rate
+  learning_rate: 0.0005
+  lr_scheduler: "cosine_warmup"  # Options: "cosine_warmup", "reduce_on_plateau", "step"
+
+  # Optimizer
+  optimizer: "AdamW"  # Options: "AdamW", "Adam", "SGD"
+  weight_decay: 0.01
+  adam_betas: [0.9, 0.999]
+  adam_eps: 1.0e-8
+
+  # Gradient clipping
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: "norm"
+
+  # Mixed precision
+  precision: "16-mixed"  # Options: "32", "16-mixed", "bf16-mixed"
+
+  # Gradient accumulation
+  accumulate_grad_batches: 1
+
+  # Validation
+  val_check_interval: 1.0  # Check every epoch
+  check_val_every_n_epoch: 1
+
+# Learning rate scheduler
+lr_scheduler:
+  # Cosine annealing with warmup
+  cosine_warmup:
+    warmup_epochs: 10
+    min_lr: 1.0e-6
+    max_lr: 0.001
+
+  # Reduce on plateau
+  reduce_on_plateau:
+    mode: "min"
+    factor: 0.5
+    patience: 10
+    min_lr: 1.0e-6
+
+  # Step scheduler
+  step:
+    step_size: 30
+    gamma: 0.1
+
+# Early stopping
+early_stopping:
+  enabled: true
+  monitor: "val_loss"
+  patience: 25
+  mode: "min"
+  min_delta: 0.0001
+
+# Model checkpointing
+checkpointing:
+  enabled: true
+  monitor: "val_loss"
+  mode: "min"
+  save_top_k: 3
+  save_last: true
+  dirpath: "checkpoints"
+  filename: "{epoch:03d}-{val_loss:.4f}"
+
+# Data splitting
+data_split:
+  # Walk-forward validation
+  method: "walk_forward"  # Options: "walk_forward", "time_series", "random"
+
+  # Walk-forward parameters
+  walk_forward:
+    train_size: 252  # 1 year of trading days
+    val_size: 63  # 3 months
+    step_size: 21  # 1 month
+    purge_gap: 5  # Days to purge between train/val
+    embargo_pct: 0.01  # Embargo 1% of samples
+
+  # Time series split (alternative)
+  time_series:
+    train_pct: 0.7
+    val_pct: 0.15
+    test_pct: 0.15
+
+  # Random split (for non-time-series tasks)
+  random:
+    train_pct: 0.7
+    val_pct: 0.15
+    test_pct: 0.15
+    shuffle: true
+
+# Loss functions
+loss:
+  # Primary loss
+  primary: "mse"  # Options: "mse", "mae", "huber", "quantile"
+
+  # Auxiliary losses (optional)
+  auxiliary:
+    directional_accuracy:
+      enabled: true
+      weight: 0.1  # Weight relative to primary loss
+
+    sharpe_loss:
+      enabled: false
+      weight: 0.05
+
+# Regularization
+regularization:
+  # Dropout
+  dropout: 0.2
+
+  # Weight decay (L2)
+  weight_decay: 0.01
+
+  # Label smoothing
+  label_smoothing: 0.0
+
+  # Mixup/Cutmix (for data augmentation)
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+
+# Experiment tracking
+experiment_tracking:
+  # Weights & Biases
+  wandb:
+    enabled: true
+    project: "ml_trading_system"
+    entity: null  # Your wandb username
+    tags:
+      - trading
+      - forecasting
+    log_model: true
+    log_freq: 100  # Log every N steps
+
+  # TensorBoard
+  tensorboard:
+    enabled: true
+    log_dir: "logs/tensorboard"
+
+  # MLflow
+  mlflow:
+    enabled: false
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "ml_trading"
+
+# Hardware configuration
+hardware:
+  # GPU settings
+  accelerator: "auto"  # Options: "auto", "cpu", "gpu", "tpu"
+  devices: "auto"  # Number of devices or "auto"
+  strategy: "ddp"  # Options: "ddp", "ddp_spawn", "dp", "deepspeed"
+
+  # Workers
+  num_workers: 4
+  persistent_workers: true
+  pin_memory: true
+
+  # Gradient accumulation (for larger effective batch size)
+  gradient_accumulation_steps: 4
+
+  # Automatic mixed precision (AMP)
+  amp_backend: "native"  # Options: "native", "apex"
+
+# Seeding for reproducibility
+seed: 42
+
+# Debugging and profiling
+debug:
+  # Fast dev run (sanity check)
+  fast_dev_run: false
+
+  # Limit batches
+  limit_train_batches: 1.0  # Use 1.0 for full, 0.1 for 10%, or int for N batches
+  limit_val_batches: 1.0
+
+  # Profiler
+  profiler: null  # Options: null, "simple", "advanced", "pytorch"
+
+  # Detect anomaly (slow, for debugging)
+  detect_anomaly: false
+
+# Model compilation (PyTorch 2.0+)
+compile:
+  enabled: false  # Enable for PyTorch 2.0+
+  backend: "inductor"  # Options: "inductor", "aot_eager", "cudagraphs"
+  mode: "default"  # Options: "default", "reduce-overhead", "max-autotune"

@@ -1,0 +1,160 @@
+# Model Configuration
+# ====================
+# Configuration for ML models (ensemble, TFT, hybrid)
+
+# Ensemble Model (LightGBM + Ridge + Momentum)
+ensemble:
+  name: "practical_ensemble"
+
+  # Model weights (will be learned during training)
+  initial_weights:
+    lgb: 0.5
+    ridge: 0.3
+    momentum: 0.2
+
+  # LightGBM parameters
+  lgb:
+    n_estimators: 100
+    learning_rate: 0.05
+    max_depth: 5
+    num_leaves: 31
+    min_child_samples: 20
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 0.1
+    verbosity: -1
+
+  # Ridge regression parameters
+  ridge:
+    alpha: 1.0
+    max_iter: 1000
+
+  # Feature engineering
+  features:
+    lookback: 60  # Days of history for features
+    forecast_horizon: 20  # Days ahead to predict
+
+  # Training
+  train_val_split: 0.8
+
+# Temporal Fusion Transformer (TFT)
+tft:
+  name: "tft_forecaster"
+
+  # Architecture
+  architecture:
+    hidden_size: 256
+    lstm_layers: 2
+    attention_heads: 4
+    dropout: 0.1
+
+  # Input/output
+  sequence_length: 60  # Input sequence length
+  forecast_horizon: 20  # Output forecast horizon
+
+  # Static features
+  static_features:
+    - sector
+    - market_cap_category
+
+  # Time-varying known features
+  known_reals:
+    - time_idx
+    - month
+    - day_of_week
+
+  # Time-varying unknown features (to predict)
+  unknown_reals:
+    - close
+    - volume
+    - returns
+
+  # Target
+  target: "returns"
+
+  # Categorical embeddings
+  embeddings:
+    sector:
+      cardinality: 11  # 11 GICS sectors
+      embedding_dim: 8
+    market_cap_category:
+      cardinality: 3  # Small, Mid, Large
+      embedding_dim: 4
+
+# Hybrid Model (CNN-LSTM-Transformer)
+hybrid:
+  name: "hybrid_trading_model"
+
+  # Total parameter target
+  total_params_target: 500_000_000  # 500M parameters
+
+  # CNN module
+  cnn:
+    channels: [64, 128, 256, 512]
+    kernel_sizes: [3, 3, 3, 3]
+    pool_sizes: [2, 2, 2, 2]
+    dropout: 0.2
+
+  # LSTM module
+  lstm:
+    hidden_size: 512
+    num_layers: 4
+    bidirectional: true
+    dropout: 0.3
+
+  # Transformer module
+  transformer:
+    d_model: 512
+    nhead: 8
+    num_encoder_layers: 6
+    num_decoder_layers: 6
+    dim_feedforward: 2048
+    dropout: 0.1
+
+  # Fusion layer
+  fusion:
+    attention_dim: 256
+    output_dim: 256
+
+  # Input/output
+  sequence_length: 60
+  forecast_horizon: 20
+  n_features: 30  # Number of input features
+
+# Model selection and ensembling
+model_ensemble:
+  # Use ensemble of multiple models
+  enabled: false
+
+  # Models to ensemble
+  models:
+    - tft
+    - hybrid
+    - ensemble
+
+  # Ensemble method
+  method: "weighted"  # Options: "simple", "weighted", "stacking"
+
+  # Weights (for weighted averaging)
+  weights:
+    tft: 0.4
+    hybrid: 0.4
+    ensemble: 0.2
+
+  # Stacking meta-model
+  meta_model: "ridge"  # Options: "ridge", "lgb"
+
+# Uncertainty quantification
+uncertainty:
+  enabled: true
+  method: "ensemble_std"  # Options: "ensemble_std", "mc_dropout", "quantile"
+
+  # Monte Carlo Dropout
+  mc_dropout:
+    n_samples: 100
+    dropout_rate: 0.1
+
+  # Quantile regression
+  quantile:
+    quantiles: [0.1, 0.5, 0.9]  # 10th, 50th, 90th percentiles

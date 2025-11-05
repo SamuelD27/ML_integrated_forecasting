@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:writing-skills)",
+      "Bash(python kelly_calculator.py:*)",
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.12/bin/python3:*)",
+      "Bash(python regime_detector_quick_start.py:*)",
+      "Bash(python3:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(source:*)",
+      "Bash(python validation_pipeline_test.py:*)",
+      "Bash(/Users/samueldukmedjian/Desktop/stock_analysis/validation_pipeline_output.txt)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(tee:*)",
+      "Bash(cat:*)",
+      "Bash(export WANDB_API_KEY=4e6f46e0f12cb3edced9a0b4d94ba315c4be7b59)",
+      "Bash(wandb login:*)",
+      "Bash(chmod:*)",
+      "Bash(for skill in financial-knowledge-validator ml-architecture-builder time-series-validation-specialist portfolio-optimization-expert real-time-feature-pipeline model-deployment-monitoring)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(ls:*)",
+      "Bash(done)",
+      "Bash(./verify_tracking.sh)",
+      "Bash(tree:*)",
+      "Bash(do echo \"✓ $skill\" ls -1 /Users/samueldukmedjian/Desktop/stock_analysis/.claude/skills/$skill/)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "autoApprove": {
+    "edit": true,
+    "bash": true,
+    "read": true,
+    "create": true
+  },
+  "confirmations": {
+    "bash": false,
+    "edit": false,
+    "read": false,
+    "create": false
+  }
+}
