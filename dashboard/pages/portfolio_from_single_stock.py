@@ -28,6 +28,7 @@ from portfolio.hrp_optimizer import HRPOptimizer
 from portfolio.advanced_optimizer import optimize_mean_variance
 from dashboard.utils.stock_search import compact_stock_search
 from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.tooltips import get_tooltip
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -246,22 +247,26 @@ def show():
                 with col1:
                     st.metric(
                         "Annual Return",
-                        f"{risk_metrics.get('annual_return', 0):.2%}"
+                        f"{risk_metrics.get('annual_return', 0):.2%}",
+                        help=get_tooltip('annualized_return')
                     )
                 with col2:
                     st.metric(
                         "Annual Volatility",
-                        f"{risk_metrics.get('annual_volatility', 0):.2%}"
+                        f"{risk_metrics.get('annual_volatility', 0):.2%}",
+                        help=get_tooltip('volatility')
                     )
                 with col3:
                     st.metric(
                         "Sharpe Ratio",
-                        f"{risk_metrics.get('sharpe_ratio', 0):.2f}"
+                        f"{risk_metrics.get('sharpe_ratio', 0):.2f}",
+                        help=get_tooltip('sharpe_ratio')
                     )
                 with col4:
                     st.metric(
                         "Max Drawdown",
-                        f"{risk_metrics.get('max_drawdown', 0):.2%}"
+                        f"{risk_metrics.get('max_drawdown', 0):.2%}",
+                        help=get_tooltip('max_drawdown')
                     )
 
                 # 7. Cumulative returns chart

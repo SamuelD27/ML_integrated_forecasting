@@ -73,7 +73,7 @@ def show():
     """Main function for portfolio risk analysis page."""
     apply_vscode_theme()
 
-    st.title("Warning: Portfolio Risk Analysis")
+    st.title("Portfolio Risk Analysis")
     st.markdown("""
     Comprehensive risk assessment of your portfolio.
     Analyze VaR, CVaR, risk contribution, and stress scenarios.
@@ -360,7 +360,8 @@ def show():
                                 'Max Drawdown': max_dd,
                                 'Days': len(scenario_returns)
                             })
-                    except:
+                    except (KeyError, IndexError):
+                        # Scenario period not available in data
                         pass
 
                 if stress_results:
