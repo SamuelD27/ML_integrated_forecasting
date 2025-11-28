@@ -26,7 +26,8 @@
       "Bash(tree:*)",
       "Bash(do echo \"✓ $skill\" ls -1 /Users/samueldukmedjian/Desktop/stock_analysis/.claude/skills/$skill/)",
       "Bash(git add:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Skill(portfolio-optimization-expert)"
     ],
     "deny": [],
     "ask": []

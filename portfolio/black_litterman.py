@@ -29,6 +29,13 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+# Import Ledoit-Wolf for shrinkage covariance (MANDATORY)
+try:
+    from sklearn.covariance import LedoitWolf
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
@@ -74,11 +81,73 @@ class BlackLittermanOptimizer:
         self.equilibrium_returns = None
         self.covariance_matrix = None
         self.assets = None
+        self.shrinkage_coefficient = None
 
         # Views
         self.P = None  # Picking matrix
         self.Q = None  # View returns
         self.Omega = None  # View uncertainty
+
+    def _compute_shrinkage_covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute covariance matrix with MANDATORY Ledoit-Wolf shrinkage.
+
+        CRITICAL: Sample covariance is NOT acceptable for Black-Litterman.
+        Ledoit-Wolf shrinkage reduces estimation error by blending with
+        a structured estimator.
+
+        Args:
+            returns: DataFrame of asset returns (rows=dates, cols=assets)
+
+        Returns:
+            Shrunk covariance matrix
+
+        Raises:
+            ImportError: If sklearn not available (NO fallback to sample covariance)
+            ValueError: If insufficient data for shrinkage estimation
+        """
+        # ENFORCE: sklearn must be available - NO FALLBACK
+        if not HAS_SKLEARN:
+            raise ImportError(
+                "sklearn required for Ledoit-Wolf shrinkage. "
+                "Sample covariance is NOT acceptable for Black-Litterman. "
+                "Install: pip install scikit-learn"
+            )
+
+        n_obs, n_assets = returns.shape
+
+        # ENFORCE: Sufficient data
+        if n_obs <= n_assets:
+            raise ValueError(
+                f"Insufficient data for shrinkage estimation: "
+                f"{n_obs} observations <= {n_assets} assets."
+            )
+
+        # Fit Ledoit-Wolf estimator
+        lw = LedoitWolf()
+        lw.fit(returns.values)
+
+        # VALIDATE: Shrinkage was applied
+        assert hasattr(lw, 'shrinkage_'), "Ledoit-Wolf shrinkage failed"
+        assert 0 <= lw.shrinkage_ <= 1, \
+            f"Invalid shrinkage intensity: {lw.shrinkage_}"
+
+        self.shrinkage_coefficient = lw.shrinkage_
+
+        cov_matrix = pd.DataFrame(
+            lw.covariance_,
+            index=returns.columns,
+            columns=returns.columns
+        )
+
+        # VALIDATE: Covariance is positive definite
+        eigenvalues = np.linalg.eigvalsh(cov_matrix.values)
+        assert (eigenvalues > -1e-8).all(), \
+            f"Covariance not positive semi-definite: min eigenvalue = {eigenvalues.min()}"
+
+        logger.info(f"✓ Ledoit-Wolf shrinkage: {lw.shrinkage_:.3f}")
+
+        return cov_matrix
 
     def set_equilibrium(
         self,
@@ -93,12 +162,16 @@ class BlackLittermanOptimizer:
             returns: Historical returns DataFrame (assets as columns)
             use_capm: Whether to use CAPM implied returns
             market_return: Market return for CAPM (if None, uses mean of returns)
+
+        Raises:
+            ImportError: If sklearn not available for Ledoit-Wolf shrinkage
+            ValueError: If insufficient data for shrinkage estimation
         """
         self.assets = returns.columns.tolist()
         n_assets = len(self.assets)
 
-        # Calculate covariance
-        self.covariance_matrix = returns.cov()
+        # Calculate covariance with MANDATORY Ledoit-Wolf shrinkage
+        self.covariance_matrix = self._compute_shrinkage_covariance(returns)
 
         if use_capm:
             # CAPM implied equilibrium returns
@@ -222,6 +295,10 @@ class BlackLittermanOptimizer:
 
         Returns:
             Posterior expected returns
+
+        Raises:
+            ValueError: If equilibrium not set
+            np.linalg.LinAlgError: If matrix inversion fails
         """
         if self.equilibrium_returns is None:
             raise ValueError("Must set equilibrium first")
@@ -236,29 +313,72 @@ class BlackLittermanOptimizer:
         Q = np.array(self.Q)  # View returns (k x 1)
         Omega = np.diag(self.Omega)  # View uncertainty (k x k)
 
+        # VALIDATE: Omega diagonal values are positive
+        omega_diag = np.array(self.Omega)
+        assert (omega_diag > 0).all(), \
+            f"Omega diagonal must be positive: {omega_diag}"
+
         # Covariance and equilibrium
         Sigma = self.covariance_matrix.values
         pi = self.equilibrium_returns.values
 
-        # Black-Litterman formula
+        # VALIDATE: tau is reasonable
+        assert 0 < self.tau < 1, f"tau must be in (0, 1), got {self.tau}"
+
+        # Black-Litterman formula with safe matrix inversion
         # E[R] = [(τΣ)^{-1} + P'Ω^{-1}P]^{-1} [(τΣ)^{-1}π + P'Ω^{-1}Q]
 
-        tau_Sigma_inv = np.linalg.inv(self.tau * Sigma)
-        Omega_inv = np.linalg.inv(Omega)
+        try:
+            tau_Sigma_inv = np.linalg.inv(self.tau * Sigma)
+        except np.linalg.LinAlgError:
+            # Try pseudo-inverse if singular
+            logger.warning("tau*Sigma is singular, using pseudo-inverse")
+            tau_Sigma_inv = np.linalg.pinv(self.tau * Sigma)
+
+        try:
+            Omega_inv = np.linalg.inv(Omega)
+        except np.linalg.LinAlgError:
+            # This should not happen if Omega diagonal is positive
+            raise ValueError("Omega matrix is singular - check view uncertainties")
+
+        # VALIDATE: Omega is positive definite
+        omega_eigenvalues = np.linalg.eigvalsh(Omega)
+        assert (omega_eigenvalues > 0).all(), \
+            f"Omega matrix not positive definite: min eigenvalue = {omega_eigenvalues.min()}"
 
         # Posterior precision
         M = tau_Sigma_inv + P.T @ Omega_inv @ P
 
+        try:
+            M_inv = np.linalg.inv(M)
+        except np.linalg.LinAlgError:
+            logger.warning("Posterior precision matrix is singular, using pseudo-inverse")
+            M_inv = np.linalg.pinv(M)
+
         # Posterior mean
-        posterior_mean = np.linalg.inv(M) @ (
+        posterior_mean = M_inv @ (
             tau_Sigma_inv @ pi + P.T @ Omega_inv @ Q
         )
 
+        # VALIDATE: Posterior returns are reasonable
+        assert not np.isnan(posterior_mean).any(), \
+            "Posterior returns contain NaN"
+        assert not np.isinf(posterior_mean).any(), \
+            "Posterior returns contain infinite values"
+
+        # VALIDATE: Posterior is plausible (between min/max of equilibrium and views with margin)
+        combined = np.concatenate([pi, Q])
+        margin = 0.10  # 10% margin
+        assert posterior_mean.min() >= combined.min() - margin, \
+            f"Posterior returns unreasonably low: {posterior_mean.min():.2%} < {combined.min() - margin:.2%}"
+        assert posterior_mean.max() <= combined.max() + margin, \
+            f"Posterior returns unreasonably high: {posterior_mean.max():.2%} > {combined.max() + margin:.2%}"
+
         posterior_returns = pd.Series(posterior_mean, index=self.assets)
 
-        logger.info("Computed posterior returns")
-        logger.debug(f"Equilibrium: {self.equilibrium_returns.to_dict()}")
-        logger.debug(f"Posterior: {posterior_returns.to_dict()}")
+        logger.info("✓ Computed posterior returns")
+        logger.debug(f"Equilibrium range: [{pi.min():.2%}, {pi.max():.2%}]")
+        logger.debug(f"Posterior range: [{posterior_mean.min():.2%}, {posterior_mean.max():.2%}]")
 
         return posterior_returns
 
@@ -325,10 +445,49 @@ class BlackLittermanOptimizer:
 
         weights = pd.Series(result.x, index=self.assets)
 
-        logger.info("Optimization complete")
+        # POST-OPTIMIZATION VALIDATION (MANDATORY)
+        self._validate_weights(weights, min_weight, max_weight)
+
+        logger.info("✓ Optimization complete")
         logger.info(f"Weights: {weights.to_dict()}")
 
         return weights
+
+    def _validate_weights(
+        self,
+        weights: pd.Series,
+        min_weight: float,
+        max_weight: float,
+        tolerance: float = 1e-4
+    ) -> None:
+        """
+        Validate portfolio weights with assertions (NOT logging).
+
+        Args:
+            weights: Portfolio weights
+            min_weight: Minimum weight constraint
+            max_weight: Maximum weight constraint
+            tolerance: Numerical tolerance
+
+        Raises:
+            AssertionError: If any constraint violated
+        """
+        # ENFORCE: Weights sum to 1
+        assert abs(weights.sum() - 1.0) < tolerance, \
+            f"Weights sum to {weights.sum():.6f}, not 1.0"
+
+        # ENFORCE: No NaN or infinite
+        assert not weights.isna().any(), "Weights contain NaN"
+        assert not np.isinf(weights).any(), "Weights contain infinite values"
+
+        # ENFORCE: Within bounds
+        assert (weights >= min_weight - tolerance).all(), \
+            f"Min weight violated: min={weights.min():.4f} < {min_weight}"
+        assert (weights <= max_weight + tolerance).all(), \
+            f"Max weight violated: max={weights.max():.4f} > {max_weight}"
+
+        logger.info(f"✓ Weights validated: sum={weights.sum():.6f}, "
+                   f"min={weights.min():.4f}, max={weights.max():.4f}")
 
     def get_portfolio_stats(self, weights: pd.Series) -> Dict:
         """
