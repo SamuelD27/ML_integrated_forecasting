@@ -261,6 +261,83 @@ class TestFeatureOrdering:
         assert len(detector.feature_names) == 10
 
 
+class TestWeightInitialization:
+    """Test proper weight initialization per ml-architecture-builder skill."""
+
+    def test_linear_weights_not_zero(self):
+        """Test that linear layer weights are not all zeros."""
+        model = RegimeClassifier()
+
+        # All linear weights should be non-zero
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.Linear):
+                assert not torch.all(module.weight == 0), \
+                    f"{name} weights are all zeros - initialization failed"
+
+    def test_kaiming_initialization_stats(self):
+        """Test that weights follow Kaiming uniform distribution properties."""
+        model = RegimeClassifier()
+
+        # For Kaiming uniform with ReLU, the std should be approximately sqrt(2/fan_in)
+        # We just verify weights are in a reasonable range
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.Linear):
+                weight_std = module.weight.data.std().item()
+                # Should not be too small (near zero) or too large
+                assert 0.05 < weight_std < 1.0, \
+                    f"{name} weight std {weight_std} outside expected range"
+
+    def test_batchnorm_initialization(self):
+        """Test BatchNorm initialized with weight=1, bias=0."""
+        model = RegimeClassifier()
+
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.BatchNorm1d):
+                # Weight should be all 1s
+                assert torch.allclose(module.weight.data, torch.ones_like(module.weight.data)), \
+                    f"{name} weight not initialized to 1"
+                # Bias should be all 0s
+                assert torch.allclose(module.bias.data, torch.zeros_like(module.bias.data)), \
+                    f"{name} bias not initialized to 0"
+
+    def test_gradient_flow(self):
+        """Test gradients flow through all layers (no vanishing/exploding)."""
+        model = RegimeClassifier()
+        model.train()
+
+        # Forward pass with batch_size > 1 for BatchNorm
+        x = torch.randn(32, 10, requires_grad=True)
+        output = model(x)
+        loss = output.sum()
+        loss.backward()
+
+        # Check gradients exist and are finite
+        for name, param in model.named_parameters():
+            assert param.grad is not None, f"No gradient for {name}"
+            assert torch.isfinite(param.grad).all(), f"Non-finite gradient for {name}"
+            # Check for vanishing gradients
+            grad_norm = param.grad.norm().item()
+            assert grad_norm > 1e-10, f"Vanishing gradient for {name}: {grad_norm}"
+
+    def test_output_finiteness(self):
+        """Test outputs are always finite."""
+        model = RegimeClassifier()
+        model.eval()
+
+        # Various input types
+        test_inputs = [
+            torch.randn(32, 10),  # Normal
+            torch.randn(32, 10) * 100,  # Large values
+            torch.randn(32, 10) * 0.01,  # Small values
+            torch.zeros(32, 10),  # Zeros
+        ]
+
+        for x in test_inputs:
+            with torch.no_grad():
+                output = model(x)
+            assert torch.isfinite(output).all(), "Output contains NaN or Inf"
+
+
 class TestRegimeClassMapping:
     """Test regime class mapping."""
 

@@ -40,6 +40,20 @@ class AttentionLayer(nn.Module):
 
         self.scale = math.sqrt(attention_dim)
 
+        # WEIGHT INITIALIZATION (MANDATORY per ml-architecture-builder skill)
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        """Initialize attention weights with Xavier uniform."""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
     def forward(self, hidden_states: torch.Tensor,
                mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -166,11 +180,52 @@ class LSTMEncoder(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
 
+        # WEIGHT INITIALIZATION (MANDATORY per ml-architecture-builder skill)
+        self._initialize_weights()
+
         logger.info(
             f"Initialized {cell_type.upper()} encoder: "
             f"layers={num_layers}, hidden={hidden_dim}, "
             f"bidirectional={bidirectional}, attention={use_attention}"
         )
+
+    def _initialize_weights(self) -> None:
+        """
+        Initialize LSTM/GRU weights for stable gradients.
+
+        Pattern:
+        - Input-to-hidden (weight_ih): Xavier uniform
+        - Hidden-to-hidden (weight_hh): Orthogonal (prevents vanishing gradients)
+        - Biases: zeros (except forget gate bias = 1.0 for LSTMs)
+        - Linear layers: Xavier uniform
+        """
+        for name, param in self.rnn.named_parameters():
+            if 'weight_ih' in name:
+                # Input-to-hidden: Xavier uniform
+                nn.init.xavier_uniform_(param)
+            elif 'weight_hh' in name:
+                # Hidden-to-hidden: Orthogonal (prevents vanishing gradients)
+                nn.init.orthogonal_(param)
+            elif 'bias' in name:
+                # Biases: zeros
+                nn.init.zeros_(param)
+                # Set forget gate bias to 1.0 for better gradient flow (LSTM only)
+                if self.cell_type == 'lstm':
+                    n = param.size(0)
+                    # Forget gate is the second quarter of the bias vector
+                    param.data[n//4:n//2].fill_(1.0)
+
+        # Initialize linear layers
+        for m in [self.combine_projection, self.output_projection]:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+        # Initialize LayerNorm
+        if hasattr(self, 'layer_norm'):
+            nn.init.ones_(self.layer_norm.weight)
+            nn.init.zeros_(self.layer_norm.bias)
 
     def forward(self, x: torch.Tensor,
                lengths: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -301,6 +356,31 @@ class StackedLSTM(nn.Module):
                     self.residual_projections.append(nn.Identity())
                 prev_dim = hidden_dim
 
+        # WEIGHT INITIALIZATION (MANDATORY per ml-architecture-builder skill)
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        """Initialize stacked LSTM weights."""
+        for lstm in self.layers:
+            for name, param in lstm.named_parameters():
+                if 'weight_ih' in name:
+                    nn.init.xavier_uniform_(param)
+                elif 'weight_hh' in name:
+                    nn.init.orthogonal_(param)
+                elif 'bias' in name:
+                    nn.init.zeros_(param)
+                    # Set forget gate bias to 1.0
+                    n = param.size(0)
+                    param.data[n//4:n//2].fill_(1.0)
+
+        # Initialize residual projections
+        if self.use_residual:
+            for proj in self.residual_projections:
+                if isinstance(proj, nn.Linear):
+                    nn.init.xavier_uniform_(proj.weight)
+                    if proj.bias is not None:
+                        nn.init.zeros_(proj.bias)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through stacked LSTM.
@@ -358,6 +438,23 @@ class ConvLSTM(nn.Module):
             self.cells.append(
                 self._make_convlstm_cell(in_dim, hidden_dim)
             )
+
+        # WEIGHT INITIALIZATION (MANDATORY per ml-architecture-builder skill)
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        """Initialize ConvLSTM cell weights."""
+        for cell in self.cells:
+            for name, param in cell.named_parameters():
+                if 'weight_ih' in name:
+                    nn.init.xavier_uniform_(param)
+                elif 'weight_hh' in name:
+                    nn.init.orthogonal_(param)
+                elif 'bias' in name:
+                    nn.init.zeros_(param)
+                    # Set forget gate bias to 1.0
+                    n = param.size(0)
+                    param.data[n//4:n//2].fill_(1.0)
 
     def _make_convlstm_cell(self, input_dim: int, hidden_dim: int) -> nn.Module:
         """Create a single ConvLSTM cell."""

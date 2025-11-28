@@ -72,6 +72,25 @@ class RegimeClassifier(nn.Module):
         # Layer 3: 32 -> 4 (output)
         self.fc3 = nn.Linear(hidden2_size, output_size)
 
+        # WEIGHT INITIALIZATION (MANDATORY per ml-architecture-builder skill)
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        """
+        Initialize weights for stable training.
+
+        Pattern: Kaiming (He) initialization for ReLU activations.
+        """
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # Kaiming He initialization for ReLU
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass.

@@ -431,12 +431,31 @@ class TFTStockForecaster:
             predictions = raw_predictions.output['prediction']  # Shape: (n_samples, pred_len, n_quantiles)
 
             if return_index:
-                # Convert to DataFrame
-                # TODO: Add proper index mapping
-                return pd.DataFrame(
-                    predictions[:, :, len(self.config.quantiles) // 2].numpy(),  # Median
-                    columns=[f't+{i}' for i in range(1, self.config.max_prediction_length + 1)]
-                )
+                # Convert to DataFrame with proper index mapping
+                # Extract index from the raw predictions metadata
+                pred_numpy = predictions[:, :, len(self.config.quantiles) // 2].numpy()  # Median
+                columns = [f't+{i}' for i in range(1, self.config.max_prediction_length + 1)]
+
+                # Build index from decoder time indices if available
+                if hasattr(raw_predictions, 'x') and 'decoder_time_idx' in raw_predictions.x:
+                    # Get the first decoder time index for each prediction (start of forecast)
+                    decoder_time_idx = raw_predictions.x['decoder_time_idx'][:, 0].numpy()
+
+                    # Get group ids if available
+                    if 'groups' in raw_predictions.x:
+                        groups = raw_predictions.x['groups'].numpy()
+                        # Create MultiIndex with group and time
+                        index = pd.MultiIndex.from_arrays(
+                            [groups[:, 0], decoder_time_idx],
+                            names=[self.config.group_ids[0], 'forecast_start_idx']
+                        )
+                    else:
+                        index = pd.Index(decoder_time_idx, name='forecast_start_idx')
+
+                    return pd.DataFrame(pred_numpy, index=index, columns=columns)
+                else:
+                    # Fallback: use sequential index
+                    return pd.DataFrame(pred_numpy, columns=columns)
             else:
                 return predictions.numpy()
 
