@@ -178,7 +178,7 @@ def show():
                             is_significant = p_value < 0.05
                             st.metric(
                                 "Alpha Significance",
-                                "Yes " if is_significant else "No Error: ",
+                                "Yes" if is_significant else "No",
                                 delta=f"p-value: {p_value:.4f}"
                             )
 

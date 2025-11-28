@@ -118,7 +118,7 @@ def show():
         )
 
     # Rebalancing settings
-    with st.expander("⚙️ Advanced Settings"):
+    with st.expander("Advanced Settings"):
         col1, col2 = st.columns(2)
 
         with col1:
@@ -161,7 +161,7 @@ def show():
 
                 # Handle missing data
                 prices = prices.dropna(axis=1, how='all')  # Drop tickers with no data
-                prices = prices.fillna(method='ffill')  # Forward fill remaining NaNs
+                prices = prices.ffill()  # Forward fill remaining NaNs
 
                 valid_tickers = list(prices.columns)
 
@@ -319,14 +319,14 @@ def show():
                 # Export button
                 csv = allocation_df.to_csv(index=False)
                 st.download_button(
-                    label="📥 Download Allocation (CSV)",
+                    label="Download Allocation (CSV)",
                     data=csv,
                     file_name=f"portfolio_allocation_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
 
                 # === 7. CORRELATION HEATMAP ===
-                st.subheader("🔗 Correlation Matrix")
+                st.subheader("Correlation Matrix")
 
                 corr = returns.corr()
 
@@ -351,7 +351,7 @@ def show():
                 st.plotly_chart(fig_heatmap, use_container_width=True)
 
                 # === 8. RISK CONTRIBUTION ===
-                st.subheader("Warning: Risk Contribution")
+                st.subheader("Risk Contribution")
 
                 # Calculate marginal contribution to risk
                 cov_matrix = returns.cov() * 252
