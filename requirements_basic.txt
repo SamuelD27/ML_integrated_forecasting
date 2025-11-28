@@ -1,32 +1,33 @@
 # Basic Stock Analysis Requirements
-# ==================================================
-# For single stock quantitative analysis (no ML/DL)
+# ==================================
+# Minimal dependencies for single stock analysis (no ML/DL)
 # Compatible with Python 3.8 - 3.12
+# Pinned versions for reproducibility
 
 # Core Data Analysis
-pandas>=2.0.0
-numpy>=1.24.0
-scipy>=1.10.0
+pandas==2.1.4
+numpy==1.24.3
+scipy==1.11.4
 
 # Market Data
-yfinance>=0.2.0
+yfinance==0.2.40
 
 # Statistical Models & Time Series
-statsmodels>=0.14.0
+statsmodels==0.14.1
 
 # Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
+matplotlib==3.7.2
+seaborn==0.13.0
 
 # Excel Output
-openpyxl>=3.1.0
-xlsxwriter>=3.1.0
+openpyxl==3.1.2
+xlsxwriter==3.1.9
 
 # Data Storage (Parquet format)
-pyarrow>=14.0.0
+pyarrow==14.0.2
 
 # Advanced volatility models
-arch>=6.0.0
+arch==6.2.0
 
-# Note: For ML-enhanced analysis, install requirements_training.txt
-# which requires Python 3.11 (NOT 3.12)
+# Note: For ML-enhanced analysis, install requirements.txt (requires Python 3.11)
+# Note: For full training with GPU, install requirements_training.txt
