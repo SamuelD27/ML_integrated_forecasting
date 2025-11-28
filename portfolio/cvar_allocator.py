@@ -254,6 +254,16 @@ class CVaRAllocator:
             weights = np.clip(weights, 0, 1)  # Ensure valid weights
             weights = weights / np.sum(weights)  # Renormalize
 
+            # POST-OPTIMIZATION VALIDATION (MANDATORY)
+            self._validate_portfolio_constraints(
+                weights,
+                tickers,
+                cov,
+                target_beta,
+                returns_df if market_ticker else None,
+                market_ticker
+            )
+
             return weights
 
         except Exception as e:
@@ -309,18 +319,55 @@ class CVaRAllocator:
         return weights
 
     def _compute_covariance(self, returns: pd.DataFrame) -> Tuple[pd.DataFrame, float]:
-        """Compute shrinkage covariance matrix."""
-        if HAS_SKLEARN and len(returns) > len(returns.columns):
-            lw = LedoitWolf()
-            lw.fit(returns.values)
-            cov_matrix = pd.DataFrame(
-                lw.covariance_,
-                index=returns.columns,
-                columns=returns.columns
+        """
+        Compute shrinkage covariance matrix using Ledoit-Wolf.
+
+        CRITICAL: Sample covariance is NOT acceptable for portfolio optimization.
+        Ledoit-Wolf shrinkage is MANDATORY - no fallback to sample covariance.
+
+        Raises:
+            ImportError: If sklearn not available (NO fallback)
+            ValueError: If insufficient data for shrinkage estimation
+        """
+        # ENFORCE: sklearn must be available - NO FALLBACK
+        if not HAS_SKLEARN:
+            raise ImportError(
+                "sklearn required for Ledoit-Wolf shrinkage. "
+                "Sample covariance is NOT acceptable for portfolio optimization. "
+                "Install: pip install scikit-learn"
             )
-            return cov_matrix, lw.shrinkage_
-        else:
-            return returns.cov(), 0.0
+
+        # ENFORCE: Sufficient data for shrinkage estimation
+        n_obs, n_assets = returns.shape
+        if n_obs <= n_assets:
+            raise ValueError(
+                f"Insufficient data for shrinkage estimation: "
+                f"{n_obs} observations <= {n_assets} assets. "
+                f"Need more observations than assets."
+            )
+
+        lw = LedoitWolf()
+        lw.fit(returns.values)
+
+        # VALIDATE: Shrinkage was applied
+        assert hasattr(lw, 'shrinkage_'), "Ledoit-Wolf shrinkage failed"
+        assert 0 <= lw.shrinkage_ <= 1, \
+            f"Invalid shrinkage intensity: {lw.shrinkage_}"
+
+        cov_matrix = pd.DataFrame(
+            lw.covariance_,
+            index=returns.columns,
+            columns=returns.columns
+        )
+
+        # VALIDATE: Covariance is positive definite
+        eigenvalues = np.linalg.eigvalsh(cov_matrix.values)
+        assert (eigenvalues > -1e-8).all(), \
+            f"Covariance not positive semi-definite: min eigenvalue = {eigenvalues.min()}"
+
+        print(f"  ✓ Ledoit-Wolf shrinkage: {lw.shrinkage_:.3f}")
+
+        return cov_matrix, lw.shrinkage_
 
     def _ml_scores_to_returns(self, ml_scores: pd.Series,
                               returns: pd.DataFrame) -> pd.Series:
@@ -363,6 +410,67 @@ class CVaRAllocator:
         market_var = market_returns.var()
 
         return covar / market_var if market_var > 0 else 1.0
+
+    def _validate_portfolio_constraints(
+        self,
+        weights: np.ndarray,
+        tickers: List[str],
+        cov_matrix: np.ndarray,
+        target_beta: Optional[float] = None,
+        returns_df: Optional[pd.DataFrame] = None,
+        market_ticker: Optional[str] = None,
+        tolerance: float = 1e-4
+    ) -> None:
+        """
+        Validate portfolio constraints with assertions (NOT logging).
+
+        CRITICAL: Use assertions to ENFORCE constraints, not just log.
+        Logging can be ignored; assertions cannot.
+
+        Args:
+            weights: Portfolio weights
+            tickers: Asset tickers
+            cov_matrix: Covariance matrix
+            target_beta: Target portfolio beta (if any)
+            returns_df: Returns DataFrame for beta calculation
+            market_ticker: Market benchmark ticker
+            tolerance: Numerical tolerance (default 1e-4)
+
+        Raises:
+            AssertionError: If any constraint violated
+        """
+        # ENFORCE: Weights sum to 1
+        assert abs(weights.sum() - 1.0) < tolerance, \
+            f"Weights sum to {weights.sum():.6f}, not 1.0"
+
+        # ENFORCE: Long-only (no shorting)
+        assert (weights >= -tolerance).all(), \
+            f"Negative weights found: {weights[weights < -tolerance]}"
+
+        # ENFORCE: Maximum position
+        assert (weights <= self.max_weight + tolerance).all(), \
+            f"Position limit violated: max={weights.max():.2%} > {self.max_weight:.2%}"
+
+        # ENFORCE: Minimum position (where weight > 0)
+        active_weights = weights[weights > tolerance]
+        if len(active_weights) > 0 and self.min_weight > 0:
+            assert (active_weights >= self.min_weight - tolerance).all(), \
+                f"Min position violated: min={active_weights.min():.2%} < {self.min_weight:.2%}"
+
+        # ENFORCE: Volatility is reasonable (not NaN or negative)
+        portfolio_vol = np.sqrt(weights @ cov_matrix @ weights)
+        assert not np.isnan(portfolio_vol), "Portfolio volatility is NaN"
+        assert portfolio_vol >= 0, f"Portfolio volatility is negative: {portfolio_vol}"
+
+        # ENFORCE: Beta constraint if specified
+        if target_beta is not None and returns_df is not None and market_ticker:
+            weights_series = pd.Series(weights, index=tickers)
+            realized_beta = self._calculate_beta(returns_df, weights_series, market_ticker)
+            beta_tolerance = 0.20  # Allow 20% deviation from target
+            assert abs(realized_beta - target_beta) < beta_tolerance, \
+                f"Beta constraint violated: realized={realized_beta:.3f}, target={target_beta:.3f}"
+
+        print(f"  ✓ All constraints validated (tolerance={tolerance})")
 
 
 def optimize_portfolio_cvar(returns: pd.DataFrame,

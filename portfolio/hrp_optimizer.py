@@ -24,6 +24,13 @@ import numpy as np
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy.spatial.distance import squareform
 
+# Import Ledoit-Wolf for shrinkage covariance (RECOMMENDED)
+try:
+    from sklearn.covariance import LedoitWolf
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +55,8 @@ class HRPOptimizer:
         linkage_method: str = 'single',
         distance_metric: str = 'correlation',
         min_weight: float = 0.0,
-        max_weight: float = 1.0
+        max_weight: float = 1.0,
+        use_shrinkage: bool = True
     ):
         """
         Initialize HRP optimizer.
@@ -65,11 +73,75 @@ class HRPOptimizer:
                 - 'manhattan': Manhattan distance
             min_weight: Minimum asset weight (default: 0%)
             max_weight: Maximum asset weight (default: 100%)
+            use_shrinkage: Whether to use Ledoit-Wolf shrinkage for covariance
+                (RECOMMENDED for stability, default: True)
         """
         self.linkage_method = linkage_method
         self.distance_metric = distance_metric
         self.min_weight = min_weight
         self.max_weight = max_weight
+        self.use_shrinkage = use_shrinkage
+        self.shrinkage_coefficient = None
+
+    def _compute_covariance_and_correlation(
+        self,
+        returns: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Compute covariance and correlation matrices.
+
+        If use_shrinkage is True (default), uses Ledoit-Wolf shrinkage for
+        more stable covariance estimates. This is RECOMMENDED for HRP
+        despite not inverting the covariance matrix.
+
+        Args:
+            returns: DataFrame of asset returns
+
+        Returns:
+            Tuple of (covariance_matrix, correlation_matrix)
+        """
+        if self.use_shrinkage and HAS_SKLEARN:
+            n_obs, n_assets = returns.shape
+
+            if n_obs > n_assets:  # Shrinkage requires more obs than assets
+                lw = LedoitWolf()
+                lw.fit(returns.values)
+
+                self.shrinkage_coefficient = lw.shrinkage_
+
+                cov = pd.DataFrame(
+                    lw.covariance_,
+                    index=returns.columns,
+                    columns=returns.columns
+                )
+
+                # Derive correlation from shrinkage covariance
+                std_devs = np.sqrt(np.diag(cov.values))
+                std_outer = np.outer(std_devs, std_devs)
+                corr_values = cov.values / (std_outer + 1e-10)
+                # Ensure diagonal is exactly 1
+                np.fill_diagonal(corr_values, 1.0)
+                corr = pd.DataFrame(
+                    corr_values,
+                    index=returns.columns,
+                    columns=returns.columns
+                )
+
+                logger.info(f"✓ Ledoit-Wolf shrinkage: {lw.shrinkage_:.3f}")
+                return cov, corr
+
+            else:
+                logger.warning(
+                    f"Insufficient data for shrinkage: {n_obs} obs <= {n_assets} assets. "
+                    f"Using sample covariance."
+                )
+
+        # Fallback to sample covariance
+        self.shrinkage_coefficient = 0.0
+        cov = returns.cov()
+        corr = returns.corr()
+
+        return cov, corr
 
     def allocate(
         self,
@@ -107,9 +179,8 @@ class HRPOptimizer:
         logger.info(f"HRP optimization for {returns.shape[1]} assets, "
                    f"{returns.shape[0]} observations")
 
-        # Calculate covariance matrix
-        cov = returns.cov()
-        corr = returns.corr()
+        # Calculate covariance matrix (with optional Ledoit-Wolf shrinkage)
+        cov, corr = self._compute_covariance_and_correlation(returns)
 
         # Validate covariance matrix
         if not self._validate_covariance_matrix(cov):
@@ -132,10 +203,47 @@ class HRPOptimizer:
         # Normalize to sum to 1
         weights = weights / weights.sum()
 
+        # POST-ALLOCATION VALIDATION (MANDATORY)
+        self._validate_hrp_weights(weights)
+
         logger.info(f"HRP weights calculated: min={weights.min():.3f}, "
                    f"max={weights.max():.3f}, std={weights.std():.3f}")
 
         return weights
+
+    def _validate_hrp_weights(
+        self,
+        weights: pd.Series,
+        tolerance: float = 1e-6
+    ) -> None:
+        """
+        Validate HRP weights with assertions.
+
+        Args:
+            weights: Portfolio weights
+            tolerance: Numerical tolerance
+
+        Raises:
+            AssertionError: If weights invalid
+        """
+        # ENFORCE: No NaN or infinite
+        assert not weights.isna().any(), "Weights contain NaN"
+        assert not np.isinf(weights).any(), "Weights contain infinite values"
+
+        # ENFORCE: Non-negative (HRP is long-only by design)
+        assert (weights >= -tolerance).all(), \
+            f"Negative weights found: {weights[weights < -tolerance].to_dict()}"
+
+        # ENFORCE: Sum to 1
+        assert abs(weights.sum() - 1.0) < tolerance, \
+            f"Weights sum to {weights.sum():.8f}, not 1.0"
+
+        # ENFORCE: Max weight constraint
+        assert (weights <= self.max_weight + tolerance).all(), \
+            f"Max weight violated: {weights.max():.4f} > {self.max_weight}"
+
+        logger.info(f"✓ HRP weights validated: sum={weights.sum():.6f}, "
+                   f"min={weights.min():.4f}, max={weights.max():.4f}")
 
     def allocate_with_metadata(
         self,
@@ -155,8 +263,7 @@ class HRPOptimizer:
         """
         # Calculate distance and linkage
         returns_clean = returns.dropna(axis=1, how='all').fillna(0)
-        corr = returns_clean.corr()
-        cov = returns_clean.cov()
+        cov, corr = self._compute_covariance_and_correlation(returns_clean)
 
         distance_matrix = self._calculate_distance_matrix(corr)
         link = linkage(squareform(distance_matrix), method=self.linkage_method)
