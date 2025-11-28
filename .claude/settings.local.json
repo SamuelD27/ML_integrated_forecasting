@@ -27,6 +27,13 @@
       "Bash(do echo \"✓ $skill\" ls -1 /Users/samueldukmedjian/Desktop/stock_analysis/.claude/skills/$skill/)",
       "Bash(git add:*)",
       "Bash(git rm:*)",
+      "Bash(git fetch:*)",
+      "Bash(for branch in goofy-zhukovsky exciting-napier sad-murdock naughty-jepsen sleepy-brattain)",
+      "Bash(do echo '=== $branch ===' git log origin/main..origin/$branch --oneline)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
       "Skill(portfolio-optimization-expert)"
     ],
     "deny": [],
