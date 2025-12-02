@@ -7,11 +7,14 @@ import time
 import json
 import hashlib
 import warnings
+import logging
+import os
 
 from .interface import DerivativesProvider, ProviderType, InstrumentType
 from .yahoo_provider import YahooFinanceProvider
 
 warnings.filterwarnings('ignore')
+logger = logging.getLogger(__name__)
 
 
 class DataProviderManager:
@@ -36,36 +39,77 @@ class DataProviderManager:
         self.cache_ttl = timedelta(hours=cache_ttl_hours)
         self.providers: List[DerivativesProvider] = []
         self.provider_stats: Dict[str, Dict] = {}
+        self.provider_health: Dict[str, Dict] = {}
+
+        # Health check settings
+        self.max_consecutive_failures = 3  # Mark provider unhealthy after N failures
+        self.health_check_interval = timedelta(minutes=5)
 
         # Initialize default providers
         self._initialize_providers()
 
     def _initialize_providers(self):
         """Initialize available providers in priority order."""
-        # Yahoo Finance (always available, free)
+        # Priority order: Yahoo (free) -> Polygon -> Alpha Vantage
+        # Yahoo is primary since it's free and reliable for most use cases
+        # Fallback providers require API keys
+
+        # 1. Yahoo Finance (always available, free)
         yahoo = YahooFinanceProvider(cache_dir=str(self.cache_dir))
         if yahoo.is_available():
-            self.providers.append(yahoo)
-            self.provider_stats[yahoo.get_provider_name()] = {
-                'requests': 0,
-                'success': 0,
-                'failures': 0,
-                'cache_hits': 0,
-            }
+            self._add_provider(yahoo)
+            logger.info(f"Initialized provider: {yahoo.get_provider_name()}")
             print(f"  ✓ Initialized provider: {yahoo.get_provider_name()}")
 
-        # Tradier (requires API key)
-        # tradier = TradierProvider(api_key=os.getenv('TRADIER_API_KEY'))
-        # if tradier.is_available():
-        #     self.providers.append(tradier)
+        # 2. Polygon (requires API key - first fallback)
+        polygon_api_key = os.environ.get('POLYGON_API_KEY')
+        if polygon_api_key:
+            try:
+                from .polygon_provider import PolygonProvider
+                polygon = PolygonProvider(api_key=polygon_api_key, cache_dir=str(self.cache_dir))
+                self._add_provider(polygon)
+                logger.info(f"Initialized provider: Polygon")
+                print(f"  ✓ Initialized provider: Polygon (fallback)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Polygon provider: {e}")
+                print(f"  ✗ Polygon provider unavailable: {e}")
 
-        # Finnhub (requires API key)
-        # finnhub = FinnhubProvider(api_key=os.getenv('FINNHUB_API_KEY'))
-        # if finnhub.is_available():
-        #     self.providers.append(finnhub)
+        # 3. Alpha Vantage (requires API key - second fallback)
+        av_api_key = os.environ.get('ALPHAVANTAGE_API_KEY')
+        if av_api_key:
+            try:
+                from .alphavantage_provider import AlphaVantageProvider
+                alpha_vantage = AlphaVantageProvider(api_key=av_api_key, cache_dir=str(self.cache_dir))
+                self._add_provider(alpha_vantage)
+                logger.info(f"Initialized provider: AlphaVantage")
+                print(f"  ✓ Initialized provider: Alpha Vantage (fallback)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Alpha Vantage provider: {e}")
+                print(f"  ✗ Alpha Vantage provider unavailable: {e}")
 
         if not self.providers:
-            raise RuntimeError("No data providers available")
+            raise RuntimeError("No data providers available. Ensure at least Yahoo Finance is working.")
+
+        print(f"  Total providers configured: {len(self.providers)}")
+
+    def _add_provider(self, provider: DerivativesProvider):
+        """Add a provider and initialize its stats."""
+        self.providers.append(provider)
+        provider_name = provider.get_provider_name()
+        self.provider_stats[provider_name] = {
+            'requests': 0,
+            'success': 0,
+            'failures': 0,
+            'cache_hits': 0,
+            'last_success': None,
+            'last_failure': None,
+            'consecutive_failures': 0,
+        }
+        self.provider_health[provider_name] = {
+            'healthy': True,
+            'last_check': datetime.now(),
+            'error_count': 0,
+        }
 
     def get_option_chain(self, symbol: str, expiration: Optional[str] = None,
                          instrument_type: InstrumentType = InstrumentType.EQUITY_OPTION,
@@ -349,3 +393,169 @@ class DataProviderManager:
 
         print(f"Cleared {cleared} cache file(s)")
         return cleared
+
+    def get_healthy_providers(self) -> List[DerivativesProvider]:
+        """
+        Get list of healthy providers for failover.
+
+        Returns
+        -------
+        List[DerivativesProvider]
+            Providers that are considered healthy
+        """
+        healthy = []
+        for provider in self.providers:
+            provider_name = provider.get_provider_name()
+            health = self.provider_health.get(provider_name, {})
+
+            # Skip if marked unhealthy
+            if not health.get('healthy', True):
+                # Check if enough time has passed to retry
+                last_check = health.get('last_check', datetime.min)
+                if datetime.now() - last_check < self.health_check_interval:
+                    continue
+                # Allow retry
+                logger.info(f"Retrying unhealthy provider: {provider_name}")
+
+            healthy.append(provider)
+
+        return healthy
+
+    def _mark_provider_failure(self, provider_name: str, error: str):
+        """Mark a provider failure and update health status."""
+        stats = self.provider_stats.get(provider_name, {})
+        stats['failures'] = stats.get('failures', 0) + 1
+        stats['last_failure'] = datetime.now()
+        stats['consecutive_failures'] = stats.get('consecutive_failures', 0) + 1
+
+        # Mark unhealthy if too many consecutive failures
+        if stats['consecutive_failures'] >= self.max_consecutive_failures:
+            self.provider_health[provider_name] = {
+                'healthy': False,
+                'last_check': datetime.now(),
+                'error_count': stats.get('consecutive_failures', 0),
+                'last_error': error,
+            }
+            logger.warning(f"Provider {provider_name} marked unhealthy after {stats['consecutive_failures']} consecutive failures")
+
+    def _mark_provider_success(self, provider_name: str):
+        """Mark a provider success and reset health status."""
+        stats = self.provider_stats.get(provider_name, {})
+        stats['success'] = stats.get('success', 0) + 1
+        stats['last_success'] = datetime.now()
+        stats['consecutive_failures'] = 0
+
+        # Restore health
+        self.provider_health[provider_name] = {
+            'healthy': True,
+            'last_check': datetime.now(),
+            'error_count': 0,
+        }
+
+    def get_provider_health_dashboard(self) -> Dict:
+        """
+        Get comprehensive provider health dashboard.
+
+        Returns
+        -------
+        Dict
+            Health status for all providers with recommendations
+        """
+        dashboard = {
+            'timestamp': datetime.now().isoformat(),
+            'total_providers': len(self.providers),
+            'healthy_providers': sum(1 for h in self.provider_health.values() if h.get('healthy', True)),
+            'providers': {},
+        }
+
+        for provider in self.providers:
+            provider_name = provider.get_provider_name()
+            stats = self.provider_stats.get(provider_name, {})
+            health = self.provider_health.get(provider_name, {})
+
+            total_requests = stats.get('requests', 0)
+            success_rate = (stats.get('success', 0) / total_requests * 100) if total_requests > 0 else 100
+
+            dashboard['providers'][provider_name] = {
+                'healthy': health.get('healthy', True),
+                'requests': total_requests,
+                'success': stats.get('success', 0),
+                'failures': stats.get('failures', 0),
+                'cache_hits': stats.get('cache_hits', 0),
+                'success_rate': f"{success_rate:.1f}%",
+                'consecutive_failures': stats.get('consecutive_failures', 0),
+                'last_success': stats.get('last_success').isoformat() if stats.get('last_success') else None,
+                'last_failure': stats.get('last_failure').isoformat() if stats.get('last_failure') else None,
+                'last_error': health.get('last_error'),
+            }
+
+        # Add recommendations
+        recommendations = []
+        if dashboard['healthy_providers'] == 0:
+            recommendations.append("CRITICAL: No healthy providers. Check API keys and network connectivity.")
+        elif dashboard['healthy_providers'] < dashboard['total_providers']:
+            unhealthy = [name for name, h in self.provider_health.items() if not h.get('healthy', True)]
+            recommendations.append(f"WARNING: {len(unhealthy)} provider(s) unhealthy: {', '.join(unhealthy)}")
+
+        if not os.environ.get('POLYGON_API_KEY'):
+            recommendations.append("TIP: Set POLYGON_API_KEY for additional fallback coverage")
+        if not os.environ.get('ALPHAVANTAGE_API_KEY'):
+            recommendations.append("TIP: Set ALPHAVANTAGE_API_KEY for additional fallback coverage")
+
+        dashboard['recommendations'] = recommendations
+
+        return dashboard
+
+    def fetch_with_fallback(self, ticker: str, start_date: str, end_date: str,
+                           interval: str = 'daily') -> Tuple[pd.DataFrame, str]:
+        """
+        Fetch historical data with automatic provider fallback.
+
+        Parameters
+        ----------
+        ticker : str
+            Ticker symbol
+        start_date : str
+            Start date (YYYY-MM-DD)
+        end_date : str
+            End date (YYYY-MM-DD)
+        interval : str
+            Data interval: 'daily', 'weekly', 'monthly'
+
+        Returns
+        -------
+        Tuple[pd.DataFrame, str]
+            (data, provider_name) - data and which provider succeeded
+        """
+        healthy_providers = self.get_healthy_providers()
+
+        if not healthy_providers:
+            logger.error("No healthy providers available")
+            return pd.DataFrame(), 'none'
+
+        for provider in healthy_providers:
+            provider_name = provider.get_provider_name()
+            self.provider_stats[provider_name]['requests'] = \
+                self.provider_stats[provider_name].get('requests', 0) + 1
+
+            try:
+                # Use provider's historical data method
+                if hasattr(provider, 'get_historical_data'):
+                    df = provider.get_historical_data(ticker, start_date, end_date, interval)
+                else:
+                    # Fallback for providers without get_historical_data
+                    logger.warning(f"{provider_name} doesn't have get_historical_data method")
+                    continue
+
+                if not df.empty:
+                    self._mark_provider_success(provider_name)
+                    logger.info(f"Successfully fetched {ticker} from {provider_name}")
+                    return df, provider_name
+
+            except Exception as e:
+                error_msg = str(e)
+                self._mark_provider_failure(provider_name, error_msg)
+                logger.warning(f"Failed to fetch {ticker} from {provider_name}: {error_msg}")
+                continue
+
+        return pd.DataFrame(), 'none'
