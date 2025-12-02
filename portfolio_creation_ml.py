@@ -18,7 +18,12 @@ from data_fetching import fetch_full_bundle, save_bundle, set_last_fetch_globals
 from data_providers.manager import DataProviderManager
 from portfolio.peer_discovery import discover_peers
 from portfolio.etf_discovery import discover_etfs
-from portfolio.options_overlay import select_hedge_options, calculate_hedge_budget
+from portfolio.options_overlay import (
+    select_hedge_options,
+    calculate_hedge_budget,
+    calculate_portfolio_beta,
+    select_index_hedge_options,
+)
 from portfolio.cvar_allocator import optimize_portfolio_cvar
 from portfolio.ml_reporter import MLPortfolioReporter
 
@@ -179,14 +184,16 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
     else:
         print(f"  No market benchmark available for regime detection")
 
-    # Step 6: ML Feature Engineering and Selection
-    ml_diagnostics = None
-    ml_rankings = None
-    ml_scores = None
+    # Step 6: Feature-Based Scoring and Selection
+    # NOTE: This uses weighted feature scoring, NOT machine learning.
+    # The MLStockSelector in ml_models/selection.py provides true ML-based selection.
+    feature_diagnostics = None
+    feature_rankings = None
+    feature_scores = None
     selected_universe = universe
 
     if enable_ml and len(universe) >= 3 and len(prices_df) >= 60:
-        print(f"\nStep 6/8: ML feature engineering and stock selection...")
+        print(f"\nStep 6/8: Feature-based scoring and stock selection...")
 
         try:
             # Feature engineering
@@ -201,13 +208,19 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
             latest_features = features_df.groupby('ticker').tail(1).reset_index(drop=True)
             print(f"    ✓ Generated {len(latest_features.columns)-1} features per stock")
 
-            # ML stock selection (simple scoring approach for current features)
-            print(f"  Training ML selection model...")
+            # Feature-based stock scoring (weighted heuristic approach)
+            # This is NOT machine learning - it uses hardcoded feature weights.
+            # For true ML selection, use ml_models/selection.py MLStockSelector.
+            print(f"  Computing feature-based scores...")
 
-            # Use a simpler approach: score based on current features
-            # Calculate composite score from momentum, quality, and low volatility
+            # Calculate composite score from momentum, quality, and risk-adjusted return
+            # WEIGHTS ARE HARDCODED HEURISTICS (not learned from data):
+            #   - momentum_medium: 30%
+            #   - momentum_short: 20%
+            #   - price_stability: 20%
+            #   - momentum_medium_sharpe: 30%
             try:
-                feature_scores = []
+                score_records = []
                 for idx, row in latest_features.iterrows():
                     ticker_name = row['ticker']
 
@@ -223,21 +236,21 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
                     # Total score
                     total_score = momentum_score + quality_score + sharpe_score
 
-                    feature_scores.append({
+                    score_records.append({
                         'ticker': ticker_name,
-                        'ml_score': total_score,
+                        'feature_score': total_score,
                         'momentum': momentum_score,
                         'quality': quality_score,
                         'sharpe': sharpe_score
                     })
 
-                ml_rankings = pd.DataFrame(feature_scores).sort_values('ml_score', ascending=False)
+                feature_rankings = pd.DataFrame(score_records).sort_values('feature_score', ascending=False)
 
                 # Extract scores
-                ml_scores = ml_rankings.set_index('ticker')['ml_score']
+                feature_scores = feature_rankings.set_index('ticker')['feature_score']
 
                 # Select top N
-                selected_tickers = ml_rankings.head(ml_top_n)['ticker'].tolist()
+                selected_tickers = feature_rankings.head(ml_top_n)['ticker'].tolist()
 
                 # Always include primary ticker and market ETF
                 if ticker not in selected_tickers:
@@ -247,32 +260,40 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
 
                 selected_universe = list(dict.fromkeys(selected_tickers))
 
-                print(f"  ✓ ML scored and selected {len(selected_universe)} stocks")
+                print(f"  ✓ Feature-scored and selected {len(selected_universe)} stocks")
                 print(f"    Top picks: {selected_universe[:5]}")
 
-                # Store diagnostics
-                ml_diagnostics = {
-                    'model_type': 'feature_scoring',
-                    'method': 'momentum_quality_sharpe_composite',
-                    'rankings': ml_rankings.to_dict('records')
+                # Store diagnostics - HONEST about what this is
+                feature_diagnostics = {
+                    'model_type': 'heuristic_scoring',  # NOT machine learning
+                    'method': 'weighted_feature_composite',
+                    'description': 'Hardcoded linear combination of momentum, quality, and Sharpe features',
+                    'weights': {
+                        'momentum_medium': 0.30,
+                        'momentum_short': 0.20,
+                        'price_stability': 0.20,
+                        'momentum_medium_sharpe': 0.30
+                    },
+                    'is_trained_model': False,
+                    'rankings': feature_rankings.to_dict('records')
                 }
 
             except Exception as e:
-                print(f"  Warning: ML scoring failed: {e}")
+                print(f"  Warning: Feature scoring failed: {e}")
                 print(f"  Using all candidates.")
                 enable_ml = False
 
         except Exception as e:
-            print(f"  Warning: ML pipeline failed: {e}")
-            print(f"  Continuing without ML selection...")
+            print(f"  Warning: Feature pipeline failed: {e}")
+            print(f"  Continuing without feature-based selection...")
             enable_ml = False
 
     else:
-        print(f"\nStep 6/8: Skipping ML (not enabled or insufficient data)")
+        print(f"\nStep 6/8: Skipping feature-based scoring (not enabled or insufficient data)")
         if not enable_ml:
-            print(f"  ML disabled by user")
+            print(f"  Feature scoring disabled by user")
         elif len(universe) < 3:
-            print(f"  Universe too small for ML ({len(universe)} assets, need 3+)")
+            print(f"  Universe too small for scoring ({len(universe)} assets, need 3+)")
         else:
             print(f"  Insufficient historical data ({len(prices_df)} days, need 60+)")
 
@@ -299,7 +320,7 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
     opt_result = optimize_portfolio_cvar(
         returns=returns,
         rrr=rrr,
-        ml_scores=ml_scores if enable_ml else None,
+        ml_scores=feature_scores if enable_ml else None,  # Still named ml_scores in optimizer API
         sector_map=sector_map,
         market_ticker=market_etf,
     )
@@ -323,8 +344,10 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
     for _, row in holdings_df.iterrows():
         print(f"    {row['ticker']:6s}: {row['weight']*100:6.2f}% | ${row['dollars']:12,.2f} | {int(row['shares']):6.0f} shares")
 
-    # Step 8: Options Overlay
-    print(f"\nStep 8/8: Constructing options hedge overlay...")
+    # Step 8: Portfolio-Wide Options Hedge (via Index Options)
+    # FIX: Previously only hedged primary ticker. Now hedges ENTIRE portfolio
+    # using SPY puts sized by portfolio beta.
+    print(f"\nStep 8/8: Constructing PORTFOLIO-WIDE options hedge overlay...")
 
     hedge_budget = calculate_hedge_budget(rrr, capital)
     print(f"  Hedge budget: ${hedge_budget:,.2f} ({hedge_budget/capital*100:.1f}%)")
@@ -336,23 +359,48 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
         hedge_budget *= hedge_multiplier
         print(f"  Regime-adjusted hedge budget: ${hedge_budget:,.2f} (multiplier: {hedge_multiplier:.2f})")
 
-    primary_price = current_prices.get(ticker, 0)
-    primary_weight = weights.get(ticker, 0)
-    primary_portfolio_value = capital * primary_weight
+    # Calculate portfolio beta for proper hedge sizing
+    print(f"  Calculating portfolio beta...")
+    try:
+        beta_result = calculate_portfolio_beta(
+            returns=returns,
+            weights=weights,
+            market_ticker=market_etf,
+        )
+        portfolio_beta = beta_result['portfolio_beta']
+        print(f"  Portfolio beta: {portfolio_beta:.2f} (R²={beta_result['r_squared']:.2f})")
 
+        # Show individual betas
+        for tk, beta in beta_result['individual_betas'].items():
+            print(f"    {tk}: β={beta:.2f}")
+
+    except Exception as e:
+        print(f"  Warning: Beta calculation failed ({e}), using β=1.0")
+        portfolio_beta = 1.0
+        beta_result = {'portfolio_beta': 1.0, 'individual_betas': {}, 'r_squared': 0.0, 'fallback': True}
+
+    # Use index hedge (SPY puts) for entire portfolio
     options_overlay = None
-    if primary_price > 0 and primary_portfolio_value > 0:
-        options_overlay = select_hedge_options(
-            ticker=ticker,
-            current_price=primary_price,
-            portfolio_value=primary_portfolio_value,
+    if capital > 0 and len(weights) > 0:
+        options_overlay = select_index_hedge_options(
+            portfolio_value=capital,
             hedge_budget=hedge_budget,
+            portfolio_beta=portfolio_beta,
+            weights=weights,
+            index_ticker='SPY',
             strategy='put',
-            target_dte=target_dte
+            target_dte=target_dte,
         )
 
+        # Add beta info to overlay for reporting
+        if options_overlay:
+            options_overlay['beta_result'] = beta_result
+
     if not options_overlay:
-        print(f"  ✗ No options overlay available for {ticker}")
+        print(f"  ✗ No portfolio-wide hedge available (SPY options unavailable)")
+        # Report what remains unhedged
+        print(f"  ⚠ WARNING: ${capital:,.2f} portfolio remains UNHEDGED")
+        print(f"    Positions unhedged: {list(weights.index)}")
 
     # Get provider diagnostics
     provider_diagnostics = provider_mgr.get_provider_diagnostics()
@@ -377,12 +425,17 @@ def run_ml_portfolio_construction(ticker: str, capital: float, rrr: float,
         'holdings_df': holdings_df,
         'options_overlay': options_overlay,
         'hedge_budget': hedge_budget,
-        'ml_enabled': enable_ml,
-        'ml_diagnostics': ml_diagnostics,
-        'ml_rankings': ml_rankings,
+        'portfolio_beta': beta_result,
+        'feature_scoring_enabled': enable_ml,  # Renamed for clarity
+        'feature_diagnostics': feature_diagnostics,  # Renamed from ml_diagnostics
+        'feature_rankings': feature_rankings,  # Renamed from ml_rankings
         'regime_info': regime_info,
         'provider_diagnostics': provider_diagnostics,
         'elapsed_time': elapsed,
+        # DEPRECATED: These keys maintained for backwards compatibility
+        'ml_enabled': enable_ml,  # Use feature_scoring_enabled instead
+        'ml_diagnostics': feature_diagnostics,  # Use feature_diagnostics instead
+        'ml_rankings': feature_rankings,  # Use feature_rankings instead
     }
 
 
@@ -414,7 +467,7 @@ RRR (Reward-to-Risk Ratio) Guide:
     parser.add_argument('--rrr', type=float, required=True,
                        help='Reward-to-risk ratio, 0.0 to 1.0 (required)')
     parser.add_argument('--enable-ml', action='store_true',
-                       help='Enable ML features for stock selection')
+                       help='Enable feature-based scoring for stock selection (uses heuristic weights, not trained ML)')
     parser.add_argument('--ml-top-n', type=int, default=10,
                        help='Number of stocks to select via ML (default: 10)')
     parser.add_argument('--start', type=str, default=None,
@@ -468,7 +521,10 @@ RRR (Reward-to-Risk Ratio) Guide:
         print(f"RRR: {args.rrr:.2f}")
 
         print(f"\nUniverse: {len(analysis['universe'])} assets")
-        print(f"  Selected via ML: {'Yes' if analysis['ml_enabled'] else 'No'}")
+        print(f"  Selected via feature scoring: {'Yes' if analysis['feature_scoring_enabled'] else 'No'}")
+        if analysis['feature_diagnostics']:
+            diag = analysis['feature_diagnostics']
+            print(f"  Scoring method: {diag.get('method', 'unknown')} (heuristic, not ML)")
         if analysis['regime_info']:
             regime = analysis['regime_info']['regime']
             print(f"  Market Regime: {regime.upper()}")

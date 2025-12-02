@@ -369,6 +369,336 @@ def calculate_hedge_budget(rrr: float, portfolio_value: float) -> float:
     return hedge_budget
 
 
+def calculate_portfolio_beta(returns: pd.DataFrame, weights: pd.Series,
+                              market_ticker: str = 'SPY') -> Dict:
+    """
+    Calculate portfolio beta relative to market index.
+
+    Beta measures systematic risk - how much the portfolio moves with the market.
+    Used to size index hedges (SPY puts) to cover portfolio-wide exposure.
+
+    Parameters
+    ----------
+    returns : pd.DataFrame
+        Daily returns for portfolio constituents (columns = tickers)
+    weights : pd.Series
+        Portfolio weights (must sum to 1.0)
+    market_ticker : str
+        Market index ticker (default: SPY)
+
+    Returns
+    -------
+    dict
+        {'portfolio_beta': float, 'individual_betas': dict, 'r_squared': float}
+    """
+    # INPUT VALIDATION (following financial-knowledge-validator skill)
+    if not isinstance(returns, pd.DataFrame):
+        raise TypeError("Returns must be a pandas DataFrame")
+    if not isinstance(weights, pd.Series):
+        raise TypeError("Weights must be a pandas Series")
+    if len(returns) < 20:
+        raise ValueError(f"Need at least 20 return observations, got {len(returns)}")
+
+    # Validate weights sum to ~1.0
+    weights_sum = weights.sum()
+    if not np.isclose(weights_sum, 1.0, atol=0.01):
+        raise ValueError(f"Weights sum to {weights_sum:.4f}, must be ~1.0")
+
+    # Fetch market returns if not in DataFrame
+    if market_ticker not in returns.columns:
+        try:
+            market = yf.Ticker(market_ticker)
+            start_date = returns.index[0].strftime('%Y-%m-%d')
+            end_date = returns.index[-1].strftime('%Y-%m-%d')
+            market_data = market.history(start=start_date, end=end_date)['Close']
+            market_returns = market_data.pct_change().dropna()
+
+            # Align dates
+            common_dates = returns.index.intersection(market_returns.index)
+            if len(common_dates) < 20:
+                raise ValueError(f"Insufficient overlapping dates: {len(common_dates)}")
+
+            returns = returns.loc[common_dates]
+            market_returns = market_returns.loc[common_dates]
+        except Exception as e:
+            print(f"  Warning: Could not fetch {market_ticker} data: {e}")
+            # Fallback to beta = 1.0
+            return {
+                'portfolio_beta': 1.0,
+                'individual_betas': {tk: 1.0 for tk in weights.index},
+                'r_squared': 0.0,
+                'fallback': True,
+            }
+    else:
+        market_returns = returns[market_ticker]
+        returns = returns.drop(columns=[market_ticker], errors='ignore')
+
+    # Calculate individual betas via regression
+    individual_betas = {}
+    for ticker in weights.index:
+        if ticker in returns.columns and ticker != market_ticker:
+            stock_returns = returns[ticker].dropna()
+            common_idx = stock_returns.index.intersection(market_returns.index)
+
+            if len(common_idx) >= 20:
+                x = market_returns.loc[common_idx].values
+                y = stock_returns.loc[common_idx].values
+
+                # Beta = Cov(stock, market) / Var(market)
+                covariance = np.cov(y, x)[0, 1]
+                market_variance = np.var(x, ddof=1)
+
+                if market_variance > 1e-10:
+                    beta = covariance / market_variance
+                    # VALIDATION: Beta typically in [-1, 3] for equities
+                    beta = np.clip(beta, -1.0, 3.0)
+                    individual_betas[ticker] = float(beta)
+                else:
+                    individual_betas[ticker] = 1.0
+            else:
+                individual_betas[ticker] = 1.0
+        elif ticker == market_ticker:
+            individual_betas[ticker] = 1.0
+        else:
+            individual_betas[ticker] = 1.0
+
+    # Portfolio beta = weighted sum of individual betas
+    portfolio_beta = 0.0
+    for ticker, weight in weights.items():
+        beta = individual_betas.get(ticker, 1.0)
+        portfolio_beta += weight * beta
+
+    # Calculate R-squared for portfolio vs market
+    # Create portfolio returns
+    aligned_weights = weights.reindex(returns.columns, fill_value=0)
+    portfolio_returns = (returns * aligned_weights).sum(axis=1)
+
+    common_idx = portfolio_returns.index.intersection(market_returns.index)
+    if len(common_idx) >= 20:
+        corr = np.corrcoef(
+            portfolio_returns.loc[common_idx].values,
+            market_returns.loc[common_idx].values
+        )[0, 1]
+        r_squared = corr ** 2 if not np.isnan(corr) else 0.0
+    else:
+        r_squared = 0.0
+
+    # OUTPUT VALIDATION
+    if not (0.0 <= portfolio_beta <= 3.0):
+        print(f"  Warning: Portfolio beta {portfolio_beta:.2f} outside typical range [0, 3]")
+        portfolio_beta = np.clip(portfolio_beta, 0.0, 3.0)
+
+    return {
+        'portfolio_beta': float(portfolio_beta),
+        'individual_betas': individual_betas,
+        'r_squared': float(r_squared),
+        'fallback': False,
+    }
+
+
+def select_index_hedge_options(portfolio_value: float, hedge_budget: float,
+                                portfolio_beta: float, weights: pd.Series,
+                                index_ticker: str = 'SPY',
+                                strategy: str = 'put',
+                                target_dte: int = 90) -> Optional[Dict]:
+    """
+    Select index options (SPY puts) to hedge ENTIRE portfolio's systematic risk.
+
+    This fixes the critical bug where only the primary ticker was hedged.
+    Uses portfolio beta to size the hedge appropriately for the whole portfolio.
+
+    Parameters
+    ----------
+    portfolio_value : float
+        Total portfolio value to hedge
+    hedge_budget : float
+        Dollar amount allocated to hedge
+    portfolio_beta : float
+        Portfolio's beta to the index (from calculate_portfolio_beta)
+    weights : pd.Series
+        Portfolio weights by ticker
+    index_ticker : str
+        Index to hedge with (default: SPY)
+    strategy : str
+        'put' or 'collar' (default: 'put')
+    target_dte : int
+        Target days to expiration (default: 90)
+
+    Returns
+    -------
+    dict or None
+        Index hedge overlay details or None if unavailable
+    """
+    # INPUT VALIDATION
+    if portfolio_value <= 0:
+        raise ValueError(f"Portfolio value must be positive, got {portfolio_value}")
+    if hedge_budget <= 0:
+        raise ValueError(f"Hedge budget must be positive, got {hedge_budget}")
+    if not (0.0 <= portfolio_beta <= 3.0):
+        raise ValueError(f"Portfolio beta {portfolio_beta} outside valid range [0, 3]")
+
+    print(f"\n[Index Hedge] Selecting {strategy.upper()} hedge for entire portfolio via {index_ticker}...")
+    print(f"  Portfolio value: ${portfolio_value:,.2f}")
+    print(f"  Portfolio beta: {portfolio_beta:.2f}")
+    print(f"  Hedge budget: ${hedge_budget:,.2f}")
+    print(f"  Positions hedged: {len(weights)} tickers")
+
+    # Beta-adjusted exposure = how much SPY we need to hedge
+    beta_adjusted_exposure = portfolio_value * portfolio_beta
+    print(f"  Beta-adjusted exposure: ${beta_adjusted_exposure:,.2f}")
+
+    # Fetch current SPY price
+    try:
+        spy = yf.Ticker(index_ticker)
+        info = spy.get_info() if hasattr(spy, 'get_info') else spy.info
+        index_price = info.get('currentPrice') or info.get('regularMarketPrice')
+
+        if not index_price or index_price <= 0:
+            hist = spy.history(period='5d')
+            if not hist.empty:
+                index_price = float(hist['Close'].iloc[-1])
+            else:
+                print(f"  Warning: Could not fetch {index_ticker} price")
+                return None
+    except Exception as e:
+        print(f"  Warning: Failed to get {index_ticker} price: {e}")
+        return None
+
+    print(f"  {index_ticker} price: ${index_price:.2f}")
+
+    # Fetch SPY options chain
+    puts = fetch_options_chain(index_ticker, target_dte=target_dte)
+
+    if puts is None or puts.empty:
+        print(f"  Warning: No options chain available for {index_ticker}")
+        return None
+
+    # Filter for near-ATM puts (92-100% moneyness for protective puts)
+    puts['moneyness'] = puts['strike'] / index_price
+    atm_puts = puts[(puts['moneyness'] >= 0.92) & (puts['moneyness'] <= 1.00)].copy()
+
+    if atm_puts.empty:
+        print(f"  Warning: No near-ATM puts found for {index_ticker}")
+        return None
+
+    # Calculate mid price
+    atm_puts['mid_price'] = (atm_puts['bid'] + atm_puts['ask']) / 2
+    atm_puts = atm_puts[atm_puts['mid_price'] > 0]
+
+    if atm_puts.empty:
+        return None
+
+    # Calculate IV for selected options
+    r = 0.04  # Risk-free rate
+    T_years = atm_puts['dte'].iloc[0] / 365.0
+
+    iv_list = []
+    for idx, row in atm_puts.iterrows():
+        iv = implied_volatility_from_price(row['mid_price'], index_price,
+                                            row['strike'], T_years, r, 'put')
+        iv_list.append(iv)
+    atm_puts['implied_vol'] = iv_list
+
+    # Select put at ~95% moneyness (5% OTM)
+    target_moneyness = 0.95
+    atm_puts['moneyness_diff'] = abs(atm_puts['moneyness'] - target_moneyness)
+    selected_put = atm_puts.loc[atm_puts['moneyness_diff'].idxmin()]
+
+    # Calculate greeks
+    strike = selected_put['strike']
+    iv = selected_put['implied_vol'] if pd.notna(selected_put['implied_vol']) else 0.18  # SPY IV typically lower
+
+    greeks = calculate_greeks_scipy(index_price, strike, T_years, r,
+                                     iv if iv and iv > 0 else 0.18, 'put')
+
+    # SIZE HEDGE: Need to hedge beta-adjusted exposure
+    option_price = float(selected_put['mid_price'])
+    shares_per_contract = 100
+
+    # Shares of SPY needed to hedge beta-adjusted exposure
+    spy_shares_to_hedge = beta_adjusted_exposure / index_price
+    contracts_for_full_hedge = int(np.ceil(spy_shares_to_hedge / shares_per_contract))
+
+    # Budget-constrained contracts
+    max_contracts_by_budget = int(hedge_budget / (option_price * shares_per_contract))
+
+    # Use lesser of budget-constrained or full hedge
+    num_contracts = min(max_contracts_by_budget, contracts_for_full_hedge)
+
+    if num_contracts <= 0:
+        print(f"  Warning: Insufficient budget for even 1 contract")
+        return None
+
+    total_premium = num_contracts * option_price * shares_per_contract
+    spy_shares_hedged = num_contracts * shares_per_contract
+    spy_notional_hedged = spy_shares_hedged * index_price
+
+    # TRUE PORTFOLIO HEDGE COVERAGE
+    # Coverage = (SPY notional hedged) / (Beta-adjusted exposure)
+    # This represents what % of systematic risk is covered
+    hedge_coverage = spy_notional_hedged / beta_adjusted_exposure if beta_adjusted_exposure > 0 else 0.0
+
+    # Also calculate raw portfolio coverage (vs total portfolio value)
+    raw_coverage = spy_notional_hedged / portfolio_value if portfolio_value > 0 else 0.0
+
+    # VALIDATION: Coverage should be in [0, 1] for partial hedge, can exceed 1 if over-hedged
+    if hedge_coverage > 1.5:
+        print(f"  Warning: Over-hedged at {hedge_coverage*100:.1f}% coverage")
+
+    print(f"  ✓ Selected {num_contracts} {index_ticker} PUT contract(s)")
+    print(f"    Strike: ${strike:.2f} ({selected_put['moneyness']*100:.1f}% moneyness)")
+    print(f"    DTE: {int(selected_put['dte'])} days")
+    print(f"    Premium: ${option_price:.2f}/share (${total_premium:,.2f} total)")
+    print(f"    Beta-adjusted coverage: {hedge_coverage*100:.1f}%")
+    print(f"    Raw portfolio coverage: {raw_coverage*100:.1f}%")
+    print(f"    Delta: {greeks['delta']:.3f}")
+    if iv:
+        print(f"    IV: {iv*100:.1f}%")
+
+    # Create position breakdown for reporting
+    position_coverage = {}
+    for ticker, weight in weights.items():
+        position_value = portfolio_value * weight
+        # Each position's share of hedge coverage
+        position_coverage[ticker] = {
+            'value': position_value,
+            'weight': weight,
+            'hedged_value': position_value * hedge_coverage,
+            'hedge_pct': hedge_coverage * 100,
+        }
+
+    return {
+        'strategy': f'Portfolio Index Hedge ({index_ticker})',
+        'hedge_type': 'index',
+        'index_ticker': index_ticker,
+        'option_type': 'put',
+        'strike': float(strike),
+        'expiration': selected_put['expiration'],
+        'dte': int(selected_put['dte']),
+        'contracts': num_contracts,
+        'option_price': option_price,
+        'total_premium': total_premium,
+        # KEY FIX: Report TRUE portfolio-wide coverage
+        'hedge_coverage': hedge_coverage,  # Beta-adjusted coverage
+        'raw_coverage': raw_coverage,  # Simple notional coverage
+        'beta_adjusted_exposure': beta_adjusted_exposure,
+        'spy_notional_hedged': spy_notional_hedged,
+        'portfolio_beta': portfolio_beta,
+        'positions_covered': len(weights),
+        'position_coverage': position_coverage,
+        'implied_vol': float(iv) if iv else None,
+        'greeks': greeks,
+        'moneyness': float(selected_put['moneyness']),
+        'bid': float(selected_put['bid']),
+        'ask': float(selected_put['ask']),
+        'volume': int(selected_put['volume']) if pd.notna(selected_put['volume']) else 0,
+        'open_interest': int(selected_put['openInterest']) if pd.notna(selected_put['openInterest']) else 0,
+        # Warning flags
+        'is_budget_constrained': max_contracts_by_budget < contracts_for_full_hedge,
+        'full_hedge_contracts': contracts_for_full_hedge,
+    }
+
+
 if __name__ == '__main__':
     # Test options overlay
     import sys
