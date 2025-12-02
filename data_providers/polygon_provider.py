@@ -20,7 +20,7 @@ class PolygonProvider(DerivativesProvider):
     Free tier: 5 calls/minute
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, cache_dir: str = "data/cache"):
         """
         Initialize Polygon provider.
 
@@ -28,21 +28,21 @@ class PolygonProvider(DerivativesProvider):
         ----------
         api_key : str, optional
             Polygon API key. If not provided, reads from env var POLYGON_API_KEY
+        cache_dir : str
+            Directory for caching data
         """
-        super().__init__(ProviderType.POLYGON)
-
         import os
-        self.api_key = api_key or os.environ.get('POLYGON_API_KEY')
+        resolved_api_key = api_key or os.environ.get('POLYGON_API_KEY')
 
-        if not self.api_key:
-            raise ValueError(
-                "Polygon API key required. Set POLYGON_API_KEY env var "
-                "or pass api_key parameter. Get free key at: https://polygon.io"
-            )
+        # Initialize parent with proper signature
+        super().__init__(api_key=resolved_api_key, cache_dir=cache_dir)
+        self.provider_type = ProviderType.POLYGON
 
         self.base_url = "https://api.polygon.io"
         self.rate_limit_delay = 12  # Free tier: 5 requests/minute
         self.last_request_time = 0
+        self._healthy = True
+        self._last_error = None
 
     def _rate_limit(self):
         """Enforce rate limiting."""
@@ -365,6 +365,46 @@ class PolygonProvider(DerivativesProvider):
             })
 
         return tickers
+
+    def is_available(self) -> bool:
+        """
+        Check if Polygon provider is available and properly configured.
+
+        Returns
+        -------
+        bool
+            True if API key is set and provider can be used
+        """
+        if not self.api_key:
+            return False
+
+        # Try a simple health check request
+        try:
+            endpoint = "/v2/aggs/ticker/AAPL/prev"
+            self._make_request(endpoint)
+            self._healthy = True
+            return True
+        except Exception as e:
+            self._healthy = False
+            self._last_error = str(e)
+            return False
+
+    def get_health_status(self) -> dict:
+        """
+        Get provider health status.
+
+        Returns
+        -------
+        dict
+            Health status including availability, last error, etc.
+        """
+        return {
+            'provider': self.get_provider_name(),
+            'available': self.api_key is not None,
+            'healthy': self._healthy,
+            'last_error': self._last_error,
+            'rate_limit_delay': self.rate_limit_delay,
+        }
 
 
 # Example usage

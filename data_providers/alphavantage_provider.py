@@ -20,7 +20,7 @@ class AlphaVantageProvider(DerivativesProvider):
     Free tier: 25 requests/day, 5 requests/minute
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, cache_dir: str = "data/cache"):
         """
         Initialize Alpha Vantage provider.
 
@@ -28,22 +28,21 @@ class AlphaVantageProvider(DerivativesProvider):
         ----------
         api_key : str, optional
             Alpha Vantage API key. If not provided, reads from env var ALPHAVANTAGE_API_KEY
+        cache_dir : str
+            Directory for caching data
         """
-        super().__init__(ProviderType.ALPHAVANTAGE)
-
         import os
-        self.api_key = api_key or os.environ.get('ALPHAVANTAGE_API_KEY')
+        resolved_api_key = api_key or os.environ.get('ALPHAVANTAGE_API_KEY')
 
-        if not self.api_key:
-            raise ValueError(
-                "Alpha Vantage API key required. Set ALPHAVANTAGE_API_KEY env var "
-                "or pass api_key parameter. Get free key at: "
-                "https://www.alphavantage.co/support/#api-key"
-            )
+        # Initialize parent with proper signature
+        super().__init__(api_key=resolved_api_key, cache_dir=cache_dir)
+        self.provider_type = ProviderType.ALPHAVANTAGE
 
         self.base_url = "https://www.alphavantage.co/query"
         self.rate_limit_delay = 12  # Free tier: 5 requests/minute = 12 seconds between calls
         self.last_request_time = 0
+        self._healthy = True
+        self._last_error = None
 
     def _rate_limit(self):
         """Enforce rate limiting."""
@@ -320,6 +319,49 @@ class AlphaVantageProvider(DerivativesProvider):
             })
 
         return results
+
+    def is_available(self) -> bool:
+        """
+        Check if Alpha Vantage provider is available and properly configured.
+
+        Returns
+        -------
+        bool
+            True if API key is set and provider can be used
+        """
+        if not self.api_key:
+            return False
+
+        # Try a simple health check request
+        try:
+            params = {
+                'function': 'GLOBAL_QUOTE',
+                'symbol': 'AAPL'
+            }
+            data = self._make_request(params)
+            self._healthy = 'Global Quote' in data
+            return self._healthy
+        except Exception as e:
+            self._healthy = False
+            self._last_error = str(e)
+            return False
+
+    def get_health_status(self) -> dict:
+        """
+        Get provider health status.
+
+        Returns
+        -------
+        dict
+            Health status including availability, last error, etc.
+        """
+        return {
+            'provider': self.get_provider_name(),
+            'available': self.api_key is not None,
+            'healthy': self._healthy,
+            'last_error': self._last_error,
+            'rate_limit_delay': self.rate_limit_delay,
+        }
 
 
 # Example usage
