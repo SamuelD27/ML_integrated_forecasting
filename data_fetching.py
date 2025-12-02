@@ -506,7 +506,9 @@ def compute_log_returns(price_df: pd.DataFrame, field: str = "Adj Close") -> pd.
     else:
         price_series = price_df[[field]].rename(columns={field: 'price'})
 
-    returns = price_series.apply(lambda x: pd.Series(x).pct_change()).apply(np.log1p)
+    # FIXED: Preserve datetime index by calling pct_change() directly
+    # Previous bug: pd.Series(x).pct_change() stripped the datetime index
+    returns = price_series.pct_change().apply(np.log1p)
     returns = returns.dropna()
     return returns
 

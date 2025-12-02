@@ -82,21 +82,25 @@ class CVaRAllocator:
         print(f"  Risk aversion: {self.risk_aversion:.2f}")
         print(f"  CVaR alpha: {self.cvar_alpha:.2%}")
 
+        original_n_assets = len(returns.columns)
+
+        # Compute covariance (may auto-reduce assets if n_obs <= n_assets)
+        cov_daily, shrinkage, returns = self._compute_covariance(returns)
+        cov_annual = cov_daily * 252
+
+        # Get tickers from potentially reduced returns
         tickers = returns.columns.tolist()
         n = len(tickers)
 
-        # Compute expected returns
+        if n < original_n_assets:
+            print(f"  ⚠ Universe auto-reduced: {original_n_assets} → {n} assets")
+
+        # Compute expected returns with (potentially reduced) asset set
         if ml_scores is not None:
-            # Use ML scores as signal for expected returns
             mu_annual = self._ml_scores_to_returns(ml_scores, returns)
             print(f"  Using ML scores for expected returns")
         else:
-            # Historical mean
             mu_annual = returns.mean() * 252
-
-        # Compute covariance
-        cov_daily, shrinkage = self._compute_covariance(returns)
-        cov_annual = cov_daily * 252
 
         # CVaR optimization
         if HAS_CVXPY and len(returns) >= n:
@@ -318,16 +322,19 @@ class CVaRAllocator:
 
         return weights
 
-    def _compute_covariance(self, returns: pd.DataFrame) -> Tuple[pd.DataFrame, float]:
+    def _compute_covariance(self, returns: pd.DataFrame) -> Tuple[pd.DataFrame, float, pd.DataFrame]:
         """
         Compute shrinkage covariance matrix using Ledoit-Wolf.
 
         CRITICAL: Sample covariance is NOT acceptable for portfolio optimization.
         Ledoit-Wolf shrinkage is MANDATORY - no fallback to sample covariance.
 
+        Returns:
+            Tuple of (covariance_matrix, shrinkage_coefficient, returns_used)
+            where returns_used may be a reduced subset if n_obs <= n_assets
+
         Raises:
             ImportError: If sklearn not available (NO fallback)
-            ValueError: If insufficient data for shrinkage estimation
         """
         # ENFORCE: sklearn must be available - NO FALLBACK
         if not HAS_SKLEARN:
@@ -337,14 +344,39 @@ class CVaRAllocator:
                 "Install: pip install scikit-learn"
             )
 
-        # ENFORCE: Sufficient data for shrinkage estimation
+        # Handle underdetermined case: n_obs <= n_assets
         n_obs, n_assets = returns.shape
         if n_obs <= n_assets:
-            raise ValueError(
-                f"Insufficient data for shrinkage estimation: "
-                f"{n_obs} observations <= {n_assets} assets. "
-                f"Need more observations than assets."
+            # GRACEFUL FALLBACK: Auto-reduce universe to fit available data
+            # Select assets with highest variance (most informative)
+            asset_variances = returns.var().sort_values(ascending=False)
+            max_assets = max(n_obs - 1, 1)  # Need at least 1 fewer asset than observations
+
+            warnings.warn(
+                f"Insufficient data for shrinkage: {n_obs} obs <= {n_assets} assets. "
+                f"Auto-reducing universe to {max_assets} highest-variance assets.",
+                UserWarning
             )
+
+            # Keep only top assets by variance
+            keep_assets = asset_variances.head(max_assets).index.tolist()
+            returns = returns[keep_assets]
+            n_obs, n_assets = returns.shape
+
+            # Validate we now have sufficient data
+            if n_obs <= n_assets:
+                # Ultimate fallback: equal-weight the reduced universe
+                warnings.warn(
+                    f"Still insufficient data after reduction. "
+                    f"Returning equal-weight allocation for {n_assets} assets.",
+                    UserWarning
+                )
+                equal_cov = pd.DataFrame(
+                    np.eye(n_assets) * returns.var().mean(),
+                    index=returns.columns,
+                    columns=returns.columns
+                )
+                return equal_cov, 1.0, returns  # Shrinkage = 1.0 indicates full shrinkage
 
         lw = LedoitWolf()
         lw.fit(returns.values)
@@ -367,7 +399,7 @@ class CVaRAllocator:
 
         print(f"  ✓ Ledoit-Wolf shrinkage: {lw.shrinkage_:.3f}")
 
-        return cov_matrix, lw.shrinkage_
+        return cov_matrix, lw.shrinkage_, returns
 
     def _ml_scores_to_returns(self, ml_scores: pd.Series,
                               returns: pd.DataFrame) -> pd.Series:

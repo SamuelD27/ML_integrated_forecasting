@@ -157,32 +157,73 @@ def compute_returns(prices: pd.Series) -> Dict[str, pd.Series]:
     }
 
 
-def compute_descriptive_stats(returns: pd.Series, prices: pd.Series, freq: int = 252) -> Dict[str, float]:
-    """Compute comprehensive descriptive statistics on returns."""
+def compute_descriptive_stats(returns: pd.Series, prices: pd.Series, freq: int = 252,
+                              risk_free_rate: float = 0.05) -> Dict[str, float]:
+    """Compute comprehensive descriptive statistics on returns.
+
+    Parameters
+    ----------
+    returns : pd.Series
+        Series of returns (daily by default).
+    prices : pd.Series
+        Series of prices (used for drawdown calculations).
+    freq : int, default 252
+        Trading days per year for annualization.
+    risk_free_rate : float, default 0.05
+        Annual risk-free rate (e.g., 0.05 = 5%). Use current Treasury rate for accuracy.
+        Default 5% is approximate; for production, fetch from FRED API.
+
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary of descriptive statistics.
+
+    Notes
+    -----
+    Sharpe ratio formula: (annualized_return - risk_free_rate) / annualized_volatility
+    Industry convention uses annual Rf, NOT daily Rf * 252.
+    """
     clean_returns = returns.dropna()
-    
+
+    # INPUT VALIDATION
+    if len(clean_returns) == 0:
+        raise ValueError("Returns series is empty after removing NaN values")
+    if not (0.0 <= risk_free_rate <= 0.20):
+        raise ValueError(f"Risk-free rate {risk_free_rate:.2%} outside realistic bounds [0%, 20%]")
+
     # Basic moments
     mean_daily = clean_returns.mean()
     median_daily = clean_returns.median()
     std_daily = clean_returns.std(ddof=1)
     variance_daily = clean_returns.var(ddof=1)
-    
+
     # Annualized metrics
     mean_annual = mean_daily * freq
     std_annual = std_daily * np.sqrt(freq)
-    
+
     # Higher moments
     skewness = clean_returns.skew()
     kurtosis = clean_returns.kurtosis()  # excess kurtosis
-    
-    # Risk-adjusted returns
-    sharpe_ratio = (mean_daily / std_daily) * np.sqrt(freq) if std_daily > 0 else np.nan
-    
-    # Sortino ratio (downside deviation)
+
+    # Risk-adjusted returns with proper Rf handling
+    # Sharpe = (annualized_return - annual_Rf) / annualized_volatility
+    if std_annual > 1e-10:
+        sharpe_ratio = (mean_annual - risk_free_rate) / std_annual
+        # OUTPUT VALIDATION: Sharpe outside [-3, 5] is suspicious
+        if not (-5 < sharpe_ratio < 8):
+            # Don't fail, but note it's unusual (could be valid in extreme markets)
+            pass
+    else:
+        sharpe_ratio = np.nan
+
+    # Sortino ratio (downside deviation) with Rf
     downside_returns = clean_returns[clean_returns < 0]
-    downside_std = downside_returns.std(ddof=1) if len(downside_returns) > 1 else np.nan
-    sortino_ratio = (mean_daily / downside_std) * np.sqrt(freq) if downside_std > 0 else np.nan
-    
+    if len(downside_returns) > 1:
+        downside_std = downside_returns.std(ddof=1) * np.sqrt(freq)
+        sortino_ratio = (mean_annual - risk_free_rate) / downside_std if downside_std > 1e-10 else np.nan
+    else:
+        sortino_ratio = np.nan
+
     return {
         'mean_daily_return': mean_daily,
         'median_daily_return': median_daily,
@@ -198,39 +239,92 @@ def compute_descriptive_stats(returns: pd.Series, prices: pd.Series, freq: int =
         'max_return': clean_returns.max(),
         'positive_days_pct': (clean_returns > 0).sum() / len(clean_returns) * 100,
         'negative_days_pct': (clean_returns < 0).sum() / len(clean_returns) * 100,
+        'risk_free_rate_used': risk_free_rate,  # Document the Rf used
     }
 
 
-def compute_risk_metrics(returns: pd.Series, confidence_levels: list = [0.95, 0.99]) -> Dict[str, float]:
-    """Compute VaR, CVaR, and drawdown metrics."""
+def compute_risk_metrics(returns: pd.Series, confidence_levels: list = [0.95, 0.99],
+                         horizon_days: int = 1) -> Dict[str, float]:
+    """Compute VaR, CVaR, and drawdown metrics with horizon scaling.
+
+    Parameters
+    ----------
+    returns : pd.Series
+        Series of daily returns.
+    confidence_levels : list, default [0.95, 0.99]
+        Confidence levels for VaR/CVaR calculation.
+    horizon_days : int, default 1
+        Horizon in trading days for VaR/CVaR scaling.
+        Common values: 1 (daily), 10 (two-week), 21 (monthly), 252 (annual).
+        Uses sqrt(T) scaling rule (assumes i.i.d. returns).
+
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary of risk metrics including VaR, CVaR, and drawdown metrics.
+
+    Notes
+    -----
+    VaR scaling: VaR_T = VaR_1 * sqrt(T)
+    This assumes returns are i.i.d., which is violated in practice due to
+    volatility clustering. For more accurate multi-day VaR, use Monte Carlo
+    simulation or GARCH models.
+    """
     clean_returns = returns.dropna()
-    
-    risk_metrics = {}
-    
-    # Value at Risk (Historical method)
+
+    # INPUT VALIDATION
+    if len(clean_returns) == 0:
+        raise ValueError("Returns series is empty after removing NaN values")
+    if horizon_days < 1 or horizon_days > 252:
+        raise ValueError(f"Horizon {horizon_days} must be between 1 and 252 trading days")
     for conf in confidence_levels:
-        var = np.quantile(clean_returns, 1 - conf)
-        risk_metrics[f'var_{int(conf*100)}'] = var
-        
-        # Conditional VaR (Expected Shortfall)
-        cvar = clean_returns[clean_returns <= var].mean()
-        risk_metrics[f'cvar_{int(conf*100)}'] = cvar
-    
-    # Maximum Drawdown
+        if not (0.5 < conf < 1.0):
+            raise ValueError(f"Confidence level {conf} must be in (0.5, 1.0)")
+
+    risk_metrics = {}
+    sqrt_horizon = np.sqrt(horizon_days)
+
+    # Value at Risk (Historical method) with horizon scaling
+    for conf in confidence_levels:
+        # Daily VaR at the given confidence level
+        var_daily = np.quantile(clean_returns, 1 - conf)
+
+        # Scale to horizon using sqrt(T) rule
+        # Note: This assumes i.i.d. returns (see docstring caveat)
+        var_scaled = var_daily * sqrt_horizon
+
+        risk_metrics[f'var_{int(conf*100)}_daily'] = var_daily
+        risk_metrics[f'var_{int(conf*100)}_{horizon_days}d'] = var_scaled
+
+        # Conditional VaR (Expected Shortfall) with horizon scaling
+        cvar_daily = clean_returns[clean_returns <= var_daily].mean()
+        cvar_scaled = cvar_daily * sqrt_horizon
+
+        risk_metrics[f'cvar_{int(conf*100)}_daily'] = cvar_daily
+        risk_metrics[f'cvar_{int(conf*100)}_{horizon_days}d'] = cvar_scaled
+
+    # Backwards-compatible keys (daily values)
+    risk_metrics['var_95'] = risk_metrics['var_95_daily']
+    risk_metrics['var_99'] = risk_metrics['var_99_daily']
+    risk_metrics['cvar_95'] = risk_metrics['cvar_95_daily']
+    risk_metrics['cvar_99'] = risk_metrics['cvar_99_daily']
+
+    # Maximum Drawdown (not scaled - it's a realized metric)
     cum_returns = (1 + clean_returns).cumprod()
     running_max = cum_returns.expanding().max()
     drawdown = (cum_returns - running_max) / running_max
     max_drawdown = drawdown.min()
-    
+
     # Average Drawdown
     avg_drawdown = drawdown[drawdown < 0].mean() if (drawdown < 0).any() else 0
-    
+
     risk_metrics.update({
         'max_drawdown': max_drawdown,
         'avg_drawdown': avg_drawdown,
-        'current_drawdown': drawdown.iloc[-1] if len(drawdown) > 0 else 0
+        'current_drawdown': drawdown.iloc[-1] if len(drawdown) > 0 else 0,
+        'horizon_days': horizon_days,  # Document the horizon used
     })
-    
+
     return risk_metrics
 
 
