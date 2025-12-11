@@ -29,7 +29,7 @@ from portfolio.security_valuation import DCFInputs, DCFValuation
 from portfolio.factor_models import FamaFrenchFactorModel
 from ml_models.practical_ensemble import StockEnsemble, generate_trading_signal
 from dashboard.utils.stock_search import compact_stock_search
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 
 
 @st.cache_data(ttl=3600)
@@ -229,10 +229,16 @@ def prepare_export_data(ticker: str, hist: pd.DataFrame, analysis_results: dict)
 
 def show():
     """Main function for single stock analysis page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
-    st.title("Single Stock Analysis")
-    st.markdown("Complete quantitative analysis with institutional-grade metrics")
+    st.markdown(f"""
+    <div style="font-size: {FONT_SIZES['lg']}; font-weight: 600; color: {COLORS['primary']}; margin-bottom: {SPACING['sm']};">
+        Single Stock Analysis
+    </div>
+    <div style="font-size: {FONT_SIZES['sm']}; color: {COLORS['text_muted']}; margin-bottom: {SPACING['md']};">
+        Complete quantitative analysis with institutional-grade metrics
+    </div>
+    """, unsafe_allow_html=True)
 
     # Input section
     with st.container():

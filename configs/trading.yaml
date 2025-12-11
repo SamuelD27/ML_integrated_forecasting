@@ -1,0 +1,339 @@
+# Trading Pipeline Configuration
+# ================================
+# Configuration for the 6-phase trading pipeline
+
+# =============================================================================
+# Phase 1: Universe Builder
+# =============================================================================
+universe:
+  # Base universe source
+  source: "sp500"  # sp500, nasdaq100, dow30, russell1000, custom
+  custom_tickers: []  # Used when source is "custom"
+
+  # Filtering thresholds
+  filters:
+    min_upside_pct: 0.20          # 20% upside to intrinsic value
+    min_quality_score: 0.0        # Quality factor score threshold
+    min_momentum_score: 0.0       # Momentum factor score threshold
+    min_value_score: -999         # Value factor (negative allowed for growth)
+    min_market_cap: 1e9           # $1B minimum market cap
+    min_avg_volume: 100000        # Minimum average daily volume
+    max_universe_size: 100        # Maximum stocks in universe
+
+  # DCF valuation parameters
+  valuation:
+    wacc: 0.10                    # Default WACC (10%)
+    terminal_growth: 0.025        # Terminal growth rate (2.5%)
+    projection_years: 5           # FCF projection years
+    use_analyst_estimates: false  # Use analyst growth estimates if available
+
+# =============================================================================
+# Phase 2: Regime Detection
+# =============================================================================
+regime:
+  # Regime mapping
+  mapping:
+    0: "Bull"
+    1: "Bear"
+    2: "Neutral"
+    3: "Crisis"
+
+  # Hysteresis/smoothing
+  min_persistence_days: 3         # Minimum days to confirm regime change
+  smoothing_window: 5             # Rolling window for smoothing
+
+  # Model path
+  model_path: "models/regime_classifier/regime_model.pt"
+  feature_stats_path: "models/regime_classifier/feature_stats.pkl"
+
+  # Features used by classifier
+  features:
+    - vol_20d
+    - ret_20d
+    - ret_60d
+    - vol_ratio
+    - rsi
+    - macd
+    - adx
+    - volume_ratio
+    - price_momentum
+    - volatility_trend
+
+  # Regime-specific parameters
+  regime_params:
+    Bull:
+      risk_multiplier: 1.0
+      position_size_multiplier: 1.0
+      options_enabled: true
+    Bear:
+      risk_multiplier: 0.5
+      position_size_multiplier: 0.5
+      options_enabled: true
+    Neutral:
+      risk_multiplier: 0.8
+      position_size_multiplier: 0.8
+      options_enabled: true
+    Crisis:
+      risk_multiplier: 0.2
+      position_size_multiplier: 0.2
+      options_enabled: false       # Stock-only in crisis
+
+# =============================================================================
+# Phase 3: Ensemble Forecaster
+# =============================================================================
+forecaster:
+  # Forecast horizon
+  horizon_days: 10                # Trading days to forecast
+
+  # Models in ensemble
+  models:
+    - name: nbeats
+      weight: 0.35
+      enabled: true
+    - name: lstm
+      weight: 0.35
+      enabled: true
+    - name: tft
+      weight: 0.30
+      enabled: true
+
+  # Model paths
+  model_paths:
+    nbeats: "models/ensemble_forecaster/nbeats.pt"
+    lstm: "models/ensemble_forecaster/lstm.pt"
+    tft: "models/ensemble_forecaster/tft.pt"
+
+  # Ensemble method
+  ensemble_method: "weighted_average"  # weighted_average, median, stacking
+
+  # Uncertainty estimation
+  uncertainty:
+    method: "ensemble_std"         # ensemble_std, mc_dropout, quantile
+    n_samples: 100                 # MC dropout samples
+
+# =============================================================================
+# Phase 4: Meta-Labeling
+# =============================================================================
+meta_labeling:
+  # Triple barrier parameters
+  triple_barrier:
+    take_profit_pct: 0.05         # 5% take profit
+    stop_loss_pct: 0.02           # 2% stop loss
+    max_holding_days: 10          # Maximum holding period
+    neutral_label: 0              # Label for timeout (0=loss, -1=neutral)
+
+  # Meta-model
+  meta_model:
+    type: "xgboost"               # xgboost, random_forest
+    model_path: "models/meta_model/meta_model.pkl"
+
+    # XGBoost parameters
+    xgboost:
+      n_estimators: 100
+      max_depth: 5
+      learning_rate: 0.1
+      min_child_weight: 3
+      subsample: 0.8
+      colsample_bytree: 0.8
+
+    # Random Forest parameters
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 5
+      min_samples_leaf: 2
+
+  # Execution threshold
+  meta_prob_threshold: 0.65       # Minimum meta probability to execute
+
+  # Features for meta-model
+  features:
+    forecast:
+      - expected_return
+      - volatility
+      - p10
+      - p90
+      - model_disagreement
+    regime:
+      - regime_int
+      - regime_bull
+      - regime_bear
+      - regime_crisis
+    market:
+      - realized_vol_20d
+      - realized_vol_60d
+      - recent_returns_5d
+      - recent_returns_20d
+      - vix_level
+      - vix_change
+
+# =============================================================================
+# Phase 5: Instrument Selection
+# =============================================================================
+instrument_selection:
+  # Confidence classification thresholds
+  confidence:
+    high_return_threshold: 0.08   # 8% expected return = high confidence
+    moderate_return_threshold: 0.03  # 3% expected return = moderate confidence
+    low_disagreement_threshold: 0.02  # Model disagreement threshold
+
+  # Volatility classification
+  volatility:
+    high_vol_threshold: 0.30      # 30% annualized = high vol
+
+  # Decision matrix scenarios
+  scenarios:
+    # Scenario A: High confidence + Low vol
+    high_conf_low_vol:
+      strategy: "long_call"
+      delta_target: 0.70          # ATM-ish call
+      dte_min: 21
+      dte_max: 45
+
+    # Scenario B: Moderate confidence + High vol
+    moderate_conf_high_vol:
+      strategy: "bull_call_spread"
+      long_delta: 0.60
+      short_delta: 0.30
+      dte_min: 21
+      dte_max: 45
+
+    # Scenario C: Neutral + High vol
+    neutral_high_vol:
+      strategy: "iron_condor"
+      put_delta: -0.20
+      call_delta: 0.20
+      width: 5                    # Strike width
+      dte_min: 21
+      dte_max: 45
+
+    # Scenario D: Bearish + Hedge
+    bearish_hedge:
+      strategy: "collar"
+      put_delta: -0.30
+      call_delta: 0.30
+      dte_min: 30
+      dte_max: 60
+
+  # Liquidity constraints
+  liquidity:
+    min_open_interest: 100        # Minimum OI per contract
+    max_bid_ask_spread_pct: 0.10  # Maximum 10% bid-ask spread
+
+  # Fallback
+  fallback_to_stock: true         # Use stock if options unsuitable
+
+# =============================================================================
+# Phase 6: CVaR Allocation
+# =============================================================================
+cvar_allocation:
+  # CVaR parameters
+  cvar_alpha: 0.95                # 95% confidence level
+  cvar_limit_pct: 0.02            # Maximum 2% CVaR per equity
+
+  # Optimization objective
+  objective: "max_sharpe"         # max_return, max_sharpe, min_cvar
+
+  # Position constraints
+  constraints:
+    max_position_pct: 0.15        # Maximum 15% per position
+    min_position_pct: 0.02        # Minimum 2% per position
+    max_sector_pct: 0.40          # Maximum 40% per sector
+    max_total_positions: 20       # Maximum number of positions
+    long_only: true               # Long-only constraint
+
+  # Scenario generation
+  scenarios:
+    n_scenarios: 10000            # Number of Monte Carlo scenarios
+    distribution: "lognormal"     # normal, lognormal, student_t
+    use_forecast_params: true     # Use forecast mean/vol for scenarios
+
+  # Turnover control
+  turnover:
+    max_turnover_pct: 0.30        # Maximum 30% turnover per rebalance
+    penalty_weight: 0.001         # Turnover penalty weight
+
+# =============================================================================
+# Pipeline Settings
+# =============================================================================
+pipeline:
+  # Output settings
+  output:
+    trades_file: "output/trades_to_execute.csv"
+    signals_file: "output/signals.csv"
+    allocation_file: "output/allocation.csv"
+    report_dir: "reports/daily"
+
+  # Execution settings
+  dry_run: true                   # If true, don't execute trades
+  paper_trading: true             # Use paper trading account
+
+  # Timing
+  run_time: "09:35:00"            # Daily run time (after market open)
+  timezone: "US/Eastern"
+
+  # Data caching
+  cache:
+    enabled: true
+    ttl_hours: 4                  # Cache time-to-live
+
+# =============================================================================
+# Risk Limits
+# =============================================================================
+risk:
+  # Portfolio-level limits
+  portfolio:
+    max_drawdown_pct: 0.10        # 10% max drawdown triggers halt
+    max_daily_loss_pct: 0.03      # 3% daily loss triggers halt
+    max_leverage: 1.0             # No leverage by default
+
+  # Position-level limits
+  position:
+    max_loss_pct: 0.05            # 5% max loss per position
+    stop_loss_enabled: true
+
+  # Market hour constraints
+  market_hours:
+    only_during_hours: true
+    open_time: "09:30:00"
+    close_time: "16:00:00"
+    timezone: "US/Eastern"
+
+# =============================================================================
+# Backtesting
+# =============================================================================
+backtesting:
+  # Default date range
+  default_start: "2020-01-01"
+  default_end: "2024-01-01"
+
+  # Initial capital
+  initial_capital: 100000
+
+  # Transaction costs
+  transaction_costs:
+    commission_pct: 0.001         # 0.1% commission
+    slippage_pct: 0.0005          # 0.05% slippage
+
+  # Benchmark
+  benchmark: "SPY"
+
+  # Metrics to track
+  metrics:
+    - total_return
+    - annualized_return
+    - volatility
+    - sharpe_ratio
+    - sortino_ratio
+    - max_drawdown
+    - calmar_ratio
+    - win_rate
+    - profit_factor
+    - avg_trade_return
+
+  # Ablation flags (for testing pipeline components)
+  ablation:
+    no_regime: false              # Ignore regime classifier
+    no_meta: false                # Ignore meta-model
+    stock_only: false             # Ignore options
+    single_model: null            # Use single model (null = use ensemble)

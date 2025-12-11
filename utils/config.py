@@ -73,11 +73,13 @@ class Config:
         model: Model architecture configuration
         training: Training hyperparameters
         portfolio: Portfolio optimization configuration
+        trading: Trading pipeline configuration
     """
     data: ConfigDict = field(default_factory=ConfigDict)
     model: ConfigDict = field(default_factory=ConfigDict)
     training: ConfigDict = field(default_factory=ConfigDict)
     portfolio: ConfigDict = field(default_factory=ConfigDict)
+    trading: ConfigDict = field(default_factory=ConfigDict)
 
     @classmethod
     def load(
@@ -111,7 +113,7 @@ class Config:
 
         # Load each config file
         configs = {}
-        config_files = ["data.yaml", "model.yaml", "training.yaml", "portfolio.yaml"]
+        config_files = ["data.yaml", "model.yaml", "training.yaml", "portfolio.yaml", "trading.yaml"]
 
         for config_file in config_files:
             config_path = config_dir / config_file
@@ -144,7 +146,8 @@ class Config:
             data=configs.get("data", ConfigDict()),
             model=configs.get("model", ConfigDict()),
             training=configs.get("training", ConfigDict()),
-            portfolio=configs.get("portfolio", ConfigDict())
+            portfolio=configs.get("portfolio", ConfigDict()),
+            trading=configs.get("trading", ConfigDict())
         )
 
         # Apply overrides
@@ -190,7 +193,8 @@ class Config:
             "data": dict(self.data),
             "model": dict(self.model),
             "training": dict(self.training),
-            "portfolio": dict(self.portfolio)
+            "portfolio": dict(self.portfolio),
+            "trading": dict(self.trading)
         }
 
 
@@ -369,3 +373,8 @@ def get_training_config() -> ConfigDict:
 def get_portfolio_config() -> ConfigDict:
     """Get portfolio configuration."""
     return get_config().portfolio
+
+
+def get_trading_config() -> ConfigDict:
+    """Get trading pipeline configuration."""
+    return get_config().trading

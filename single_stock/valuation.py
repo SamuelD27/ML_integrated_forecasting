@@ -562,6 +562,145 @@ def export_to_excel(output_path: Path,
 
 
 # ---------------------------------------------------------------------------
+# Pipeline Integration Functions
+# ---------------------------------------------------------------------------
+
+def compute_intrinsic_value(
+    ticker: str,
+    as_of_date: pd.Timestamp,
+    config: Optional[Dict] = None,
+    ticker_info: Optional[Dict] = None,
+    current_price: Optional[float] = None
+) -> Dict[str, Optional[float]]:
+    """
+    Compute intrinsic value for a ticker using DCF and multiples.
+
+    This function is used by the pipeline's universe builder (Phase 1).
+
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol
+    as_of_date : pd.Timestamp
+        Date for valuation (for historical analysis)
+    config : dict, optional
+        Configuration with WACC, growth rate, etc.
+        If None, uses defaults from trading.yaml
+    ticker_info : dict, optional
+        Pre-fetched Yahoo Finance info dict.
+        If None, will attempt to fetch (requires yfinance)
+    current_price : float, optional
+        Current stock price. If None, extracts from ticker_info.
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - intrinsic_value: Estimated fair value per share
+        - upside_pct: Percentage upside/downside to intrinsic value
+        - dcf_value: DCF-based valuation
+        - graham_value: Graham number
+        - valuation_method: Which method was used
+        - pe_ratio: P/E ratio
+        - pb_ratio: P/B ratio
+        - ev_ebitda: EV/EBITDA ratio
+        - confidence: Confidence in valuation (0-1)
+
+    Example
+    -------
+    >>> result = compute_intrinsic_value('AAPL', pd.Timestamp('2024-01-15'))
+    >>> print(f"Intrinsic value: ${result['intrinsic_value']:.2f}")
+    >>> print(f"Upside: {result['upside_pct']:.1%}")
+    """
+    # Default config values
+    wacc = 0.10
+    growth_rate = 0.05
+    terminal_growth = 0.025
+    projection_years = 5
+
+    if config is not None:
+        valuation_cfg = config.get('universe', {}).get('valuation', {})
+        wacc = valuation_cfg.get('wacc', wacc)
+        terminal_growth = valuation_cfg.get('terminal_growth', terminal_growth)
+        projection_years = valuation_cfg.get('projection_years', projection_years)
+
+    result = {
+        'intrinsic_value': None,
+        'upside_pct': None,
+        'dcf_value': None,
+        'graham_value': None,
+        'valuation_method': None,
+        'pe_ratio': None,
+        'pb_ratio': None,
+        'ev_ebitda': None,
+        'confidence': 0.0,
+        'current_price': current_price
+    }
+
+    # Fetch ticker info if not provided
+    if ticker_info is None:
+        try:
+            import yfinance as yf
+            stock = yf.Ticker(ticker)
+            ticker_info = stock.info or {}
+        except Exception:
+            return result
+
+    # Extract fundamentals
+    fund = extract_fundamentals(ticker_info, ticker)
+
+    # Get current price
+    if current_price is None:
+        current_price = ticker_info.get('currentPrice') or ticker_info.get('regularMarketPrice')
+
+    if current_price is None:
+        return result
+
+    result['current_price'] = current_price
+
+    # Calculate DCF value
+    dcf_value = simple_dcf_valuation(
+        fund,
+        wacc=wacc,
+        growth_rate=growth_rate,
+        terminal_growth=terminal_growth,
+        projection_years=projection_years
+    )
+    result['dcf_value'] = dcf_value
+
+    # Calculate Graham number
+    bvps = safe_div(fund.book_value, fund.shares_outstanding)
+    graham_value = calculate_graham_number(fund.eps, bvps)
+    result['graham_value'] = graham_value
+
+    # Calculate ratios
+    ratios = calculate_valuation_ratios(current_price, fund)
+    result['pe_ratio'] = ratios.get('PE')
+    result['pb_ratio'] = ratios.get('PB')
+    result['ev_ebitda'] = ratios.get('EV/EBITDA')
+
+    # Determine intrinsic value (prefer DCF, fall back to Graham)
+    if dcf_value is not None and dcf_value > 0:
+        result['intrinsic_value'] = dcf_value
+        result['valuation_method'] = 'dcf'
+        result['confidence'] = 0.7  # DCF has moderate confidence
+    elif graham_value is not None and graham_value > 0:
+        result['intrinsic_value'] = graham_value
+        result['valuation_method'] = 'graham'
+        result['confidence'] = 0.5  # Graham number is simpler
+
+    # Calculate upside percentage
+    if result['intrinsic_value'] is not None:
+        result['upside_pct'] = (result['intrinsic_value'] - current_price) / current_price
+
+        # Adjust confidence based on sanity checks
+        if abs(result['upside_pct']) > 1.0:  # >100% upside/downside is suspicious
+            result['confidence'] *= 0.5
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

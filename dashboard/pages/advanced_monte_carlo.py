@@ -33,7 +33,7 @@ from portfolio.advanced_monte_carlo import (
     calculate_risk_metrics
 )
 from dashboard.utils.stock_search import compact_stock_search
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for advanced Monte Carlo simulation page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
     st.title("Advanced Monte Carlo Simulation")
     st.markdown("""

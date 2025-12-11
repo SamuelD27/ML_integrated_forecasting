@@ -24,7 +24,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from portfolio.factor_models import FamaFrenchFactorModel
 from dashboard.utils.stock_search import compact_stock_search
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for factor analysis page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
     st.title("Factor Analysis (Fama-French)")
     st.markdown("""

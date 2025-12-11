@@ -35,7 +35,7 @@ from portfolio.security_valuation import (
 )
 from portfolio.options_pricing import BlackScholesModel, OptionParameters
 from dashboard.utils.stock_search import compact_stock_search
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 def show():
     """Main function for security pricing page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
     st.title("Security Pricing Models")
     st.markdown("""

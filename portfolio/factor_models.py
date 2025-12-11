@@ -481,6 +481,183 @@ class FamaFrenchFactorModel:
             logger.warning(f"Failed to save cache: {e}")
 
 
+# =============================================================================
+# Pipeline Integration Functions
+# =============================================================================
+
+def compute_factor_scores(
+    ticker: str,
+    as_of_date: pd.Timestamp,
+    config: Optional[Dict] = None,
+    returns: Optional[pd.Series] = None,
+    ticker_info: Optional[Dict] = None,
+    price_history: Optional[pd.DataFrame] = None
+) -> Dict[str, float]:
+    """
+    Compute factor scores for a ticker.
+
+    This function is used by the pipeline's universe builder (Phase 1).
+    Calculates Value, Quality, Momentum, Growth, and Low-Volatility factor scores.
+
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol
+    as_of_date : pd.Timestamp
+        Date for scoring (for historical analysis)
+    config : dict, optional
+        Configuration for scoring thresholds
+    returns : pd.Series, optional
+        Pre-computed returns for momentum calculation
+    ticker_info : dict, optional
+        Pre-fetched Yahoo Finance info dict for fundamentals
+    price_history : pd.DataFrame, optional
+        Historical price data with 'Adj Close' column
+
+    Returns
+    -------
+    dict
+        Dictionary containing factor scores (normalized, higher = better):
+        - value: Value factor score (lower P/E, P/B = higher score)
+        - quality: Quality factor score (higher ROE, margins = higher score)
+        - momentum: Momentum factor score (12-1 month returns)
+        - growth: Growth factor score (revenue/earnings growth)
+        - low_volatility: Low volatility factor score (lower vol = higher score)
+        - composite: Weighted composite score
+
+    Example
+    -------
+    >>> scores = compute_factor_scores('AAPL', pd.Timestamp('2024-01-15'))
+    >>> print(f"Value: {scores['value']:.2f}, Momentum: {scores['momentum']:.2f}")
+    """
+    scores = {
+        'value': 0.0,
+        'quality': 0.0,
+        'momentum': 0.0,
+        'growth': 0.0,
+        'low_volatility': 0.0,
+        'composite': 0.0
+    }
+
+    # Fetch data if not provided
+    if ticker_info is None or price_history is None:
+        try:
+            import yfinance as yf
+            stock = yf.Ticker(ticker)
+            if ticker_info is None:
+                ticker_info = stock.info or {}
+            if price_history is None:
+                price_history = stock.history(period='1y')
+        except Exception:
+            return scores
+
+    if returns is None and price_history is not None and len(price_history) > 0:
+        if 'Adj Close' in price_history.columns:
+            returns = price_history['Adj Close'].pct_change().dropna()
+        elif 'Close' in price_history.columns:
+            returns = price_history['Close'].pct_change().dropna()
+
+    # --- VALUE FACTOR ---
+    # Lower P/E, P/B = higher value score
+    pe = ticker_info.get('trailingPE')
+    pb = ticker_info.get('priceToBook')
+
+    value_components = []
+    if pe is not None and pe > 0:
+        # Inverse P/E normalized (higher earnings yield = higher value)
+        earnings_yield = 1.0 / pe
+        # Typical earnings yield range: 2-10%
+        value_components.append(min(earnings_yield / 0.10, 1.0))
+
+    if pb is not None and pb > 0:
+        # Inverse P/B normalized (higher book yield = higher value)
+        book_yield = 1.0 / pb
+        value_components.append(min(book_yield / 1.0, 1.0))
+
+    if value_components:
+        scores['value'] = np.mean(value_components) * 2 - 1  # Scale to [-1, 1]
+
+    # --- QUALITY FACTOR ---
+    # Higher ROE, ROA, margins = higher quality
+    roe = ticker_info.get('returnOnEquity')
+    roa = ticker_info.get('returnOnAssets')
+    profit_margin = ticker_info.get('profitMargins')
+    gross_margin = ticker_info.get('grossMargins')
+
+    quality_components = []
+    if roe is not None:
+        quality_components.append(min(roe / 0.20, 1.0))  # 20% ROE = max score
+    if roa is not None:
+        quality_components.append(min(roa / 0.10, 1.0))  # 10% ROA = max score
+    if profit_margin is not None:
+        quality_components.append(min(profit_margin / 0.15, 1.0))  # 15% margin = max score
+    if gross_margin is not None:
+        quality_components.append(min(gross_margin / 0.40, 1.0))  # 40% gross = max score
+
+    if quality_components:
+        scores['quality'] = np.mean(quality_components) * 2 - 1  # Scale to [-1, 1]
+
+    # --- MOMENTUM FACTOR ---
+    # 12-1 month momentum (skip most recent month)
+    if returns is not None and len(returns) >= 252:
+        # 12-month return minus 1-month return
+        mom_12m = (1 + returns.iloc[-252:-21]).prod() - 1
+        mom_1m = (1 + returns.iloc[-21:]).prod() - 1
+        momentum_raw = mom_12m - mom_1m
+
+        # Normalize to approximately [-1, 1]
+        scores['momentum'] = np.clip(momentum_raw / 0.30, -1, 1)
+    elif returns is not None and len(returns) >= 60:
+        # Fallback: 3-month momentum
+        mom_3m = (1 + returns.iloc[-60:]).prod() - 1
+        scores['momentum'] = np.clip(mom_3m / 0.15, -1, 1)
+
+    # --- GROWTH FACTOR ---
+    # Revenue and earnings growth
+    revenue_growth = ticker_info.get('revenueGrowth')
+    earnings_growth = ticker_info.get('earningsGrowth')
+
+    growth_components = []
+    if revenue_growth is not None:
+        growth_components.append(np.clip(revenue_growth / 0.20, -1, 1))
+    if earnings_growth is not None:
+        growth_components.append(np.clip(earnings_growth / 0.25, -1, 1))
+
+    if growth_components:
+        scores['growth'] = np.mean(growth_components)
+
+    # --- LOW VOLATILITY FACTOR ---
+    # Lower volatility = higher score
+    if returns is not None and len(returns) >= 60:
+        vol_60d = returns.iloc[-60:].std() * np.sqrt(252)  # Annualized
+        # Typical vol range: 15-50%
+        # Lower vol = higher score
+        if vol_60d > 0:
+            scores['low_volatility'] = np.clip(1 - (vol_60d - 0.15) / 0.35, -1, 1)
+
+    # --- COMPOSITE SCORE ---
+    # Equal weighted by default
+    weights = {
+        'value': 0.20,
+        'quality': 0.25,
+        'momentum': 0.25,
+        'growth': 0.15,
+        'low_volatility': 0.15
+    }
+
+    if config is not None:
+        factor_weights = config.get('factor_weights', {})
+        weights.update(factor_weights)
+
+    scores['composite'] = sum(
+        scores[factor] * weight
+        for factor, weight in weights.items()
+        if factor != 'composite'
+    )
+
+    return scores
+
+
 def create_factor_features(
     returns_df: pd.DataFrame,
     tickers: List[str],

@@ -27,12 +27,12 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from portfolio.hrp_optimizer import HRPOptimizer
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 
 
 def show():
     """Main function for portfolio from galaxy page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
     st.title("Portfolio from Securities Galaxy")
     st.markdown("**Create optimal portfolio from your selected universe of securities**")

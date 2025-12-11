@@ -1,0 +1,66 @@
+# Trading Bot Docker Compose
+# ==========================
+# Run with: docker compose up -d
+
+version: '3.8'
+
+services:
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-bot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - TZ=America/New_York
+      - BOT_LOG_LEVEL=INFO
+      - BOT_DRY_RUN=false
+    volumes:
+      # Persist trade data and logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # No ports needed - bot doesn't serve HTTP
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Run performance reports on schedule
+  report-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: report-scheduler
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # Run report every 2 hours using shell loop
+    # Alternative: use cron on host
+    command: >
+      sh -c "while true; do
+        echo 'Sending 2-hour performance report...';
+        python -m reports.performance_report --hours 2 --send-telegram || true;
+        sleep 7200;
+      done"
+    depends_on:
+      - trading-bot
+    profiles:
+      - with-reports
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# Named volumes for data persistence
+volumes:
+  bot-data:
+  bot-logs:

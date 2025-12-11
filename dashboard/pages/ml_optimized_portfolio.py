@@ -20,26 +20,29 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from integration.dashboard_connector import create_dashboard_connector
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.layout import init_page, render_sidebar, page_header, render_footer
+from dashboard.utils.theme_terminal import COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 
-# Page config
-st.set_page_config(
-    page_title="ML-Optimized Portfolio",
-    page_icon="🤖",
-    layout="wide"
+# Page config - Terminal style
+init_page(
+    title="ML Portfolio | Trading Terminal",
+    icon="",
+    layout="wide",
+    sidebar_state="collapsed"
 )
 
-# Apply theme
-apply_vscode_theme()
+# Sidebar
+render_sidebar(current_page="pages/ml_optimized_portfolio.py")
 
-# Page title
-st.title("🤖 ML-Optimized Portfolio")
-st.markdown("""
-Build optimized portfolios using **machine learning forecasts** combined with
-institutional-grade portfolio optimization algorithms.
-""")
-
-st.markdown("---")
+# Page Header
+page_header(
+    title="ML-Optimized Portfolio",
+    subtitle="Build portfolios using ML forecasts and institutional-grade optimization",
+    show_env_badge=False,
+    show_status=False,
+    show_time=True,
+    show_home_button=True,
+)
 
 # Sidebar configuration
 st.sidebar.header("⚙️ Configuration")

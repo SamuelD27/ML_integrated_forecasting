@@ -27,7 +27,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy import stats
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +71,16 @@ def calculate_cvar(returns: pd.Series, confidence_level: float = 0.95) -> float:
 
 def show():
     """Main function for portfolio risk analysis page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
-    st.title("Portfolio Risk Analysis")
-    st.markdown("""
-    Comprehensive risk assessment of your portfolio.
-    Analyze VaR, CVaR, risk contribution, and stress scenarios.
-    """)
+    st.markdown(f"""
+    <div style="font-size: {FONT_SIZES['lg']}; font-weight: 600; color: {COLORS['primary']}; margin-bottom: {SPACING['sm']};">
+        Portfolio Risk Analysis
+    </div>
+    <div style="font-size: {FONT_SIZES['sm']}; color: {COLORS['text_muted']}; margin-bottom: {SPACING['md']};">
+        Comprehensive risk assessment: VaR, CVaR, risk contribution, stress scenarios
+    </div>
+    """, unsafe_allow_html=True)
 
     # Sidebar inputs
     st.sidebar.header("Portfolio Configuration")

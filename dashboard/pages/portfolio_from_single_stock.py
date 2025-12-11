@@ -27,7 +27,7 @@ from portfolio.peer_discovery import discover_peers
 from portfolio.hrp_optimizer import HRPOptimizer
 from portfolio.advanced_optimizer import optimize_mean_variance
 from dashboard.utils.stock_search import compact_stock_search
-from dashboard.utils.theme import apply_vscode_theme
+from dashboard.utils.theme_terminal import apply_terminal_theme, COLORS, FONTS, FONT_SIZES, SPACING, RADIUS
 from dashboard.utils.tooltips import get_tooltip
 import plotly.graph_objects as go
 import plotly.express as px
@@ -63,7 +63,7 @@ def calculate_risk_metrics(returns: pd.Series) -> Dict:
 
 def show():
     """Main function for portfolio from single stock page."""
-    apply_vscode_theme()
+    apply_terminal_theme()
 
     st.title("Portfolio from Single Stock")
     st.markdown("""
